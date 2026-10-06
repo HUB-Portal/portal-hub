@@ -21,7 +21,10 @@ function Ask([string]$label, [string]$default = '') {
   $suffix = if ($default) { " [$default]" } else { '' }
   $v = Read-Host "$label$suffix"
   if ([string]::IsNullOrWhiteSpace($v)) { return $default }
-  return $v.Trim()
+  $v = $v.Trim()
+  # Values copied from a .env file often carry quote marks around them: drop one matching pair.
+  if ($v.Length -ge 2 -and (($v[0] -eq '"' -and $v[-1] -eq '"') -or ($v[0] -eq "'" -and $v[-1] -eq "'"))) { $v = $v.Substring(1, $v.Length - 2) }
+  return $v
 }
 function RandHex([int]$bytes) {
   $b = New-Object 'byte[]' $bytes
@@ -40,11 +43,14 @@ Write-Host 'In Neon: Connect, switch Connection pooling OFF, copy the postgresql
 $ownerUrl = Ask 'Owner connection string'
 if ($ownerUrl -notmatch '^(postgres(?:ql)?://)([^:@/]+):([^@]*)@(.+)$') { throw 'That does not look like a postgresql://user:password@host/db string.' }
 $scheme = $Matches[1]; $ownerUser = $Matches[2]; $rest = $Matches[4]
+$ownerPassword = $Matches[3]
 if ($rest -match '-pooler') {
   Write-Host 'Removing "-pooler" from the host: the migration and the app both use the direct connection.' -ForegroundColor Yellow
   $rest = $rest -replace '-pooler', ''
-  $ownerUrl = "$scheme$ownerUser`:$($Matches[3])@$rest"
 }
+# channel_binding is a Neon extra the Node database library does not need; sslmode=require still forces encryption.
+$rest = $rest -replace '&channel_binding=[^&]*', '' -replace '\?channel_binding=[^&]*&', '?' -replace '\?channel_binding=[^&]*$', ''
+$ownerUrl = "$scheme$ownerUser`:$ownerPassword@$rest"
 $appPassword = RandHex 24
 $appUrl = "${scheme}kph_app:$appPassword@$rest"
 
@@ -76,7 +82,7 @@ if (-not $SkipMigrate) {
   Write-Host '== Migration ==' -ForegroundColor Cyan
   if (-not (Test-Path (Join-Path $root 'node_modules'))) {
     Write-Host 'Installing packages (npm ci) ...'
-    & npm ci --no-audit --no-fund
+    cmd /c 'npm ci --no-audit --no-fund'
     if ($LASTEXITCODE -ne 0) { throw 'npm ci failed' }
   }
   $env:DATABASE_OWNER_URL = $ownerUrl
@@ -84,7 +90,7 @@ if (-not $SkipMigrate) {
   $env:MASTER_KEYS = $masterKeys
   $env:ACTIVE_KEY_ID = 'k1'
   $env:BLIND_INDEX_KEY_ID = 'b1'
-  & npm run migrate
+  cmd /c 'npm run migrate'
   if ($LASTEXITCODE -ne 0) { throw 'The migration failed. Read the message above; nothing was changed in Vercel.' }
   Write-Host 'Migration finished.' -ForegroundColor Green
 }
