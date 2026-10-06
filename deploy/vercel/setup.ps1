@@ -63,7 +63,9 @@ if (-not $masterKeys) {
   $masterKeys = (@{ k1 = (RandB64 32); b1 = (RandB64 32) } | ConvertTo-Json -Compress)
   Write-Host 'New keys generated. Keep a copy of the block printed at the end.' -ForegroundColor Yellow
 }
-$parsed = $masterKeys | ConvertFrom-Json
+# A paste that lost its curly braces is still a valid key list: put them back.
+if (-not $masterKeys.StartsWith('{')) { $masterKeys = '{' + $masterKeys.Trim().TrimEnd(',') + '}' }
+try { $parsed = $masterKeys | ConvertFrom-Json } catch { throw 'MASTER_KEYS is not valid JSON. It must look like {"k1":"...","b1":"..."}' }
 if (-not $parsed.k1 -or -not $parsed.b1) { throw 'MASTER_KEYS must contain the key ids k1 and b1.' }
 
 Write-Host ''
