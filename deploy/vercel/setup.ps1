@@ -58,7 +58,7 @@ Write-Host ''
 Write-Host '== Encryption keys ==' -ForegroundColor Cyan
 Write-Host 'Paste your existing MASTER_KEYS JSON (starts with {), or press Enter to generate new ones.'
 Write-Host 'Do not generate new keys if the database already holds data: it could no longer be read.' -ForegroundColor Yellow
-$masterKeys = Ask 'MASTER_KEYS'
+$masterKeys = (Read-Host 'MASTER_KEYS').Trim()   # raw read: the quote marks inside this JSON must stay
 if (-not $masterKeys) {
   $masterKeys = (@{ k1 = (RandB64 32); b1 = (RandB64 32) } | ConvertTo-Json -Compress)
   Write-Host 'New keys generated. Keep a copy of the block printed at the end.' -ForegroundColor Yellow
