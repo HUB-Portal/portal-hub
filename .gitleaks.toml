@@ -18,7 +18,7 @@ regexes = ['''Demo2026PartnerHub''']
 description = "Placeholder values in documentation"
 condition = "AND"
 paths = ['''(^|/)docs/(KLINE-API-2\.6\.txt|integration/PARTNER_API\.md)$''']
-regexes = ['''^(1234567890(1234567890)*|123e4567-e89b-12d3-a456-426614174000|kph_0123456789ab_.*)$''']
+regexes = ['''^((1234567890)+[0-9]{0,9}|123e4567-e89b-12d3-a456-426614174000|kph_0123456789ab_.*)$''']
 
 # Made up passwords and secrets that tests send to check that weak or wrong values are refused or accepted.
 [[allowlists]]
