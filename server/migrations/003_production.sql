@@ -75,6 +75,6 @@ CREATE POLICY kline_only ON job_runs USING (kph_bypass()) WITH CHECK (kph_bypass
 -- SECURITY DEFINER and read only, so the app role never receives the trim function.
 -- ---------------------------------------------------------------------------
 CREATE FUNCTION kph_audit_verify_chain() RETURNS TABLE (ok boolean, checked bigint, first_bad_seq bigint)
-LANGUAGE sql SECURITY DEFINER SET search_path = public, pg_temp SET kph.bypass = 'true' AS $$
+LANGUAGE sql SECURITY DEFINER SET search_path = public, pg_temp AS $$
   SELECT * FROM kph_audit_verify()
 $$;

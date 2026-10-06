@@ -429,17 +429,23 @@ CREATE FUNCTION kph_audit_canonical(
   )::text
 $$;
 
+-- The four SECURITY DEFINER functions below need row level security bypass while they run. They switch it on inside the body
+-- and put the caller's value back before every RETURN, instead of using a function level "SET kph.bypass = 'true'": that
+-- form needs superuser (or an explicit GRANT SET ON PARAMETER) on PostgreSQL 15 and later, which managed hosts such as Neon do not give.
+-- set_config(..., true) is transaction local, and a failed statement or rolled back savepoint undoes it as well.
 CREATE FUNCTION kph_audit_append(
   p_actor_type text, p_actor_id text, p_org_id uuid, p_action text, p_target_type text, p_target_id text,
   p_ip text, p_ua text, p_details jsonb
-) RETURNS bigint LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp SET kph.bypass = 'true' AS $$
+) RETURNS bigint LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp AS $$
 DECLARE
+  v_bypass text := current_setting('kph.bypass', true);
   a audit_anchor%ROWTYPE;
   v_seq bigint;
   v_at timestamptz := date_trunc('microseconds', clock_timestamp());
   v_hash text;
   v_details jsonb := coalesce(p_details, '{}'::jsonb);
 BEGIN
+  PERFORM set_config('kph.bypass', 'true', true);
   SELECT * INTO a FROM audit_anchor WHERE id = 1 FOR UPDATE;
   v_seq := a.last_seq + 1;
   v_hash := encode(sha256(convert_to(
@@ -448,19 +454,22 @@ BEGIN
   INSERT INTO audit_log (seq, at, actor_type, actor_id, org_id, action, target_type, target_id, ip, user_agent, details, prev_hash, hash)
   VALUES (v_seq, v_at, p_actor_type, p_actor_id, p_org_id, p_action, p_target_type, p_target_id, p_ip, p_ua, v_details, a.last_hash, v_hash);
   UPDATE audit_anchor SET last_seq = v_seq, last_hash = v_hash WHERE id = 1;
+  PERFORM set_config('kph.bypass', coalesce(v_bypass, ''), true);
   RETURN v_seq;
 END $$;
 
 -- Walks the chain from the last trim anchor. Returns (ok, checked, first_bad_seq).
 CREATE FUNCTION kph_audit_verify() RETURNS TABLE (ok boolean, checked bigint, first_bad_seq bigint)
-LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp SET kph.bypass = 'true' AS $$
+LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp AS $$
 DECLARE
+  v_bypass text := current_setting('kph.bypass', true);
   a audit_anchor%ROWTYPE;
   r audit_log%ROWTYPE;
   v_prev text;
   v_expected_seq bigint;
   v_count bigint := 0;
 BEGIN
+  PERFORM set_config('kph.bypass', 'true', true);
   SELECT * INTO a FROM audit_anchor WHERE id = 1;
   v_prev := a.trimmed_hash;
   v_expected_seq := a.trimmed_seq + 1;
@@ -468,6 +477,7 @@ BEGIN
     IF r.seq <> v_expected_seq OR r.prev_hash <> v_prev OR r.hash <> encode(sha256(convert_to(
          v_prev || kph_audit_canonical(r.seq, r.at, r.actor_type, r.actor_id, r.org_id, r.action, r.target_type, r.target_id, r.ip, r.user_agent, r.details),
          'UTF8')), 'hex') THEN
+      PERFORM set_config('kph.bypass', coalesce(v_bypass, ''), true);
       RETURN QUERY SELECT false, v_count, r.seq;
       RETURN;
     END IF;
@@ -476,29 +486,37 @@ BEGIN
     v_count := v_count + 1;
   END LOOP;
   IF v_prev <> a.last_hash OR v_expected_seq - 1 <> a.last_seq THEN
+    PERFORM set_config('kph.bypass', coalesce(v_bypass, ''), true);
     RETURN QUERY SELECT false, v_count, v_expected_seq;
     RETURN;
   END IF;
+  PERFORM set_config('kph.bypass', coalesce(v_bypass, ''), true);
   RETURN QUERY SELECT true, v_count, NULL::bigint;
 END $$;
 
 -- Removes entries older than p_before (a contiguous prefix only) and moves the anchor. Owner only.
 CREATE FUNCTION kph_audit_trim(p_before timestamptz) RETURNS bigint
-LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp SET kph.bypass = 'true' AS $$
+LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp AS $$
 DECLARE
+  v_bypass text := current_setting('kph.bypass', true);
   v_upto bigint;
   v_hash text;
   v_deleted bigint;
 BEGIN
+  PERFORM set_config('kph.bypass', 'true', true);
   PERFORM 1 FROM audit_anchor WHERE id = 1 FOR UPDATE;
   SELECT coalesce(min(seq) - 1, (SELECT max(seq) FROM audit_log)) INTO v_upto FROM audit_log WHERE at >= p_before;
-  IF v_upto IS NULL OR v_upto <= (SELECT trimmed_seq FROM audit_anchor WHERE id = 1) THEN RETURN 0; END IF;
+  IF v_upto IS NULL OR v_upto <= (SELECT trimmed_seq FROM audit_anchor WHERE id = 1) THEN
+    PERFORM set_config('kph.bypass', coalesce(v_bypass, ''), true);
+    RETURN 0;
+  END IF;
   SELECT hash INTO v_hash FROM audit_log WHERE seq = v_upto;
   PERFORM set_config('kph.audit_maint', 'on', true);
   DELETE FROM audit_log WHERE seq <= v_upto;
   GET DIAGNOSTICS v_deleted = ROW_COUNT;
   UPDATE audit_anchor SET trimmed_seq = v_upto, trimmed_hash = v_hash WHERE id = 1;
   PERFORM set_config('kph.audit_maint', 'off', true);
+  PERFORM set_config('kph.bypass', coalesce(v_bypass, ''), true);
   RETURN v_deleted;
 END $$;
 
@@ -514,12 +532,16 @@ CREATE TRIGGER audit_log_guard BEFORE UPDATE OR DELETE ON audit_log FOR EACH ROW
 CREATE TRIGGER audit_log_guard_trunc BEFORE TRUNCATE ON audit_log FOR EACH STATEMENT EXECUTE FUNCTION kph_audit_guard();
 
 -- Monotonic counters (case references etc.)
-CREATE FUNCTION kph_next_counter(p_key text) RETURNS bigint LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp SET kph.bypass = 'true' AS $$
-DECLARE v bigint;
+CREATE FUNCTION kph_next_counter(p_key text) RETURNS bigint LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp AS $$
+DECLARE
+  v_bypass text := current_setting('kph.bypass', true);
+  v bigint;
 BEGIN
+  PERFORM set_config('kph.bypass', 'true', true);
   INSERT INTO counters (key, value) VALUES (p_key, 1)
   ON CONFLICT (key) DO UPDATE SET value = counters.value + 1
   RETURNING value INTO v;
+  PERFORM set_config('kph.bypass', coalesce(v_bypass, ''), true);
   RETURN v;
 END $$;
 

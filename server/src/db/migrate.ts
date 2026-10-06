@@ -28,8 +28,20 @@ async function ensureAppRole(c: pg.Client, appUrl: string): Promise<string> {
   const owner = (await c.query('SELECT current_user AS u')).rows[0].u as string;
   if (role === owner) throw new Error('The app role must differ from the owner role');
   const exists = (await c.query('SELECT 1 FROM pg_roles WHERE rolname = $1', [role])).rowCount! > 0;
+  // A role that already carries only the restricted attributes needs just its password set. An owner that is not a superuser
+  // (managed hosts such as Neon) is not allowed to restate SUPERUSER, REPLICATION or BYPASSRLS, even as NO... values.
+  const current = exists
+    ? (await c.query(
+        'SELECT rolcanlogin, rolsuper, rolcreatedb, rolcreaterole, rolreplication, rolbypassrls FROM pg_roles WHERE rolname = $1',
+        [role],
+      )).rows[0]
+    : undefined;
+  const alreadyRestricted = !!current && current.rolcanlogin && !current.rolsuper && !current.rolcreatedb && !current.rolcreaterole
+    && !current.rolreplication && !current.rolbypassrls;
   const stmt = (await c.query(
-    `SELECT format('%s ROLE %I LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS PASSWORD %L', $1::text, $2::text, $3::text) AS s`,
+    alreadyRestricted
+      ? `SELECT format('%s ROLE %I PASSWORD %L', $1::text, $2::text, $3::text) AS s`
+      : `SELECT format('%s ROLE %I LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS PASSWORD %L', $1::text, $2::text, $3::text) AS s`,
     [exists ? 'ALTER' : 'CREATE', role, password],
   )).rows[0].s as string;
   await c.query(stmt);
@@ -57,6 +69,9 @@ export async function migrate(opts: MigrateOptions): Promise<string[]> {
   const applied: string[] = [];
   try {
     await c.query('SELECT pg_advisory_lock(727001)');
+    // FORCE ROW LEVEL SECURITY applies to the owner too unless the owner is a superuser (managed hosts such as Neon give none),
+    // so the migrations switch the bypass flag on for this connection only, like the app does for its own system work.
+    await c.query("SELECT set_config('kph.bypass', 'true', false)");
     const role = await ensureAppRole(c, opts.appUrl);
     await c.query('CREATE TABLE IF NOT EXISTS schema_migrations (name text PRIMARY KEY, applied_at timestamptz NOT NULL DEFAULT now())');
     const done = new Set((await c.query('SELECT name FROM schema_migrations')).rows.map((x) => x.name as string));
