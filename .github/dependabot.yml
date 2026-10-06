@@ -1,0 +1,22 @@
+version: 2
+updates:
+  # npm workspaces (server, web and shared): one lock file at the repository root
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 10
+    groups:
+      minor-and-patch:
+        update-types: [minor, patch]
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+
+  # Dockerfile base image
+  - package-ecosystem: docker
+    directory: /
+    schedule:
+      interval: weekly

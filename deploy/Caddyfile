@@ -1,0 +1,84 @@
+# Caddy in front of the Hub: automatic HTTPS (Let's Encrypt), security headers, size limits, and logs without query strings.
+# KPH_DOMAIN and ACME_EMAIL come from /srv/kph/secrets/caddy.env.
+{
+	email {$ACME_EMAIL}
+
+	servers {
+		protocols h1 h2 h3
+		timeouts {
+			read_header 15s
+			# Chunks are at most 8 MB. A slow connection may need a few minutes for one.
+			read_body 5m
+			write 15m
+			idle 2m
+		}
+	}
+}
+
+{$KPH_DOMAIN} {
+	# The application sets its own strict Content Security Policy, HSTS, frame and referrer headers.
+	# "?" means: only when the application did not set the header. Caddy adds what the application does not.
+	header {
+		?Strict-Transport-Security "max-age=63072000; includeSubDomains; preload"
+		?X-Content-Type-Options "nosniff"
+		?X-Frame-Options "DENY"
+		?Referrer-Policy "no-referrer"
+		?Cross-Origin-Opener-Policy "same-origin"
+		?Cross-Origin-Resource-Policy "same-origin"
+		Permissions-Policy "camera=(), microphone=(), geolocation=(), payment=(), usb=(), interest-cohort=()"
+		-Server
+		-X-Powered-By
+	}
+
+	# Only static assets are compressed. API answers carry session and CSRF material and are never compressed.
+	@static path /assets/* /favicon.svg
+	encode @static zstd gzip
+
+	# Upload chunks are at most 8 MB (plus a little for the request). Everything else is small JSON.
+	@chunk {
+		method PUT
+		path_regexp ^/api/uploads/[0-9a-fA-F-]{36}/chunks/[0-9]+$
+	}
+	handle @chunk {
+		request_body {
+			max_size 8448KB
+		}
+		reverse_proxy app:4000 {
+			flush_interval -1
+			transport http {
+				dial_timeout 5s
+				response_header_timeout 2m
+			}
+		}
+	}
+
+	handle {
+		request_body {
+			max_size 2MB
+		}
+		reverse_proxy app:4000 {
+			# Zip packages and file downloads are streamed as they are produced.
+			flush_interval -1
+			health_uri /api/health
+			health_interval 30s
+			health_timeout 5s
+			transport http {
+				dial_timeout 5s
+				response_header_timeout 5m
+			}
+		}
+	}
+
+	# Access log: who asked for which path and what came back. Never the query string (it can hold search terms or one time codes),
+	# never request headers (cookies, authorisation, CSRF tokens) and never Set-Cookie.
+	log {
+		output stdout
+		format filter {
+			wrap json
+			request>uri regexp \?.* ""
+			request>headers delete
+			request>tls delete
+			resp_headers>Set-Cookie delete
+		}
+	}
+}

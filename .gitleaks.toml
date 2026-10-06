@@ -1,0 +1,28 @@
+# Gitleaks configuration for the Portal Hub repository.
+# It keeps every default rule and only allows specific, documented, fictional values.
+# Do NOT add broad path or pattern allowlists: a leak must still be found anywhere else, including in server/test/.
+# If a new test needs a made up password or key, add that exact value below (or use a value such as 'A'.repeat(43)).
+
+title = "Portal Hub gitleaks configuration"
+
+[extend]
+useDefault = true
+
+# The shared password of the fictional demo accounts, documented in README.md and docs/BRIEF.md.
+[[allowlists]]
+description = "Demo account password"
+regexes = ['''Demo2026PartnerHub''']
+
+# Placeholder values in the K Line portal API document and in our own partner API guide.
+[[allowlists]]
+description = "Placeholder values in documentation"
+condition = "AND"
+paths = ['''(^|/)docs/(KLINE-API-2\.6\.txt|integration/PARTNER_API\.md)$''']
+regexes = ['''^(1234567890(1234567890)*|123e4567-e89b-12d3-a456-426614174000|kph_0123456789ab_.*)$''']
+
+# Made up passwords and secrets that tests send to check that weak or wrong values are refused or accepted.
+[[allowlists]]
+description = "Fictional test passwords and secrets"
+condition = "AND"
+paths = ['''(^|/)server/test/[A-Za-z0-9._-]+\.test\.ts$''']
+regexes = ['''^(violet-sofa-marathon-[0-9]+|wrong-secret-wrong-secret-12345|Correct-Horse-Battery-Staple-7)$''']

@@ -1,0 +1,13 @@
+# Code owners are asked to review every pull request that touches the paths below.
+# Replace @YOUR-ORG/team with the real GitHub team (for example @k-line-europe/portal-hub-maintainers)
+# once the organisation exists, remove the leading # and turn on "Require review from Code Owners"
+# in the branch protection rule for main. A team must have write access to the repository.
+#
+# * @YOUR-ORG/team
+#
+# Suggested stricter ownership for sensitive areas:
+# /server/src/crypto/   @YOUR-ORG/team
+# /server/src/auth/     @YOUR-ORG/team
+# /server/migrations/   @YOUR-ORG/team
+# /deploy/              @YOUR-ORG/team
+# /.github/             @YOUR-ORG/team

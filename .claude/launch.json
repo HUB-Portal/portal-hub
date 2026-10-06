@@ -1,0 +1,6 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    { "name": "hub", "runtimeExecutable": "npm", "runtimeArgs": ["run", "-w", "server", "dev"], "port": 4000 }
+  ]
+}

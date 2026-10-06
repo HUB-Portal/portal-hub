@@ -1,0 +1,64 @@
+import type { FastifyInstance } from 'fastify';
+import { SYSTEM, tx } from '../db';
+import { authRoutes } from './auth';
+import { oidcRoutes } from './oidc';
+import { orgRoutes } from './org';
+import { auditRoutes } from './audit';
+import { demoRoutes } from './demo';
+import { uploadRoutes } from './uploads';
+import { fileRoutes } from './files';
+import { caseRoutes } from './cases';
+import { bulkRoutes } from './bulk';
+import { orgPortalRoutes } from './orgPortal';
+import { consoleRoutes } from './console';
+import { mesRoutes } from './mes';
+import { adminRoutes } from './admin';
+import { partnerRoutes } from './partners';
+import { notificationRoutes } from './notifications';
+import { bagRoutes } from './bags';
+import { claimRoutes } from './claims';
+import { specRoutes } from './specs';
+import { materialRoutes } from './materials';
+import { signupRoutes } from './signup';
+import { profileRoutes } from './profile';
+import { apiKeyRoutes } from './apiKeys';
+import { webhookRoutes } from './webhooks';
+import { exportRoutes } from './exports';
+import { accountRoutes } from './account';
+import { v1Routes } from './v1';
+import { portalHookRoutes } from './portalHooks';
+
+/** Add new route modules here (phase 2: uploads, files, cases, bulk ...). */
+export async function registerRoutes(app: FastifyInstance): Promise<void> {
+  app.get('/api/health', async () => {
+    await tx(SYSTEM, (c) => c.query('SELECT 1'));
+    return { ok: true };
+  });
+  await app.register(authRoutes);
+  await app.register(oidcRoutes);
+  await app.register(orgRoutes);
+  await app.register(auditRoutes);
+  await app.register(demoRoutes);
+  await app.register(uploadRoutes);
+  await app.register(fileRoutes);
+  await app.register(caseRoutes);
+  await app.register(bulkRoutes);
+  await app.register(orgPortalRoutes);
+  await app.register(consoleRoutes);
+  await app.register(mesRoutes);
+  await app.register(adminRoutes);
+  await app.register(partnerRoutes);
+  await app.register(notificationRoutes);
+  await app.register(bagRoutes);
+  await app.register(claimRoutes);
+  await app.register(specRoutes);
+  await app.register(materialRoutes);
+  await app.register(signupRoutes);
+  await app.register(profileRoutes);
+  await app.register(apiKeyRoutes);
+  await app.register(webhookRoutes);
+  await app.register(exportRoutes);
+  await app.register(accountRoutes);
+  await app.register(v1Routes);
+  await app.register(portalHookRoutes);
+}

@@ -1,0 +1,1844 @@
+KLINE API
+
+V2.6
+
+Changelog
+
+2.6
+
+      Add Case Files endpoint now accepts an optional field name path parameter to upload to a specific
+      case field.
+      The legacy URL without a field name continues to work unchanged.
+      Add Case Files endpoint now supports multipart form uploads in addition to binary stream.
+      New Create Refinement Case endpoint to create a refinement child case from a shipped parent.
+      New Create Phase 2 Case endpoint to create a Phase 2 child case from a shipped parent.
+      New Create Retainer Case endpoint to create a retainer child case from a shipped parent.
+      New Create Whitening Tray Case endpoint to create a whitening tray child case from a shipped parent.
+      New List Child Cases endpoint to list all direct child cases of a parent case.
+      New Accept Treatment Plan endpoint to accept a pending treatment plan.
+      New Reject Treatment Plan endpoint to reject a pending treatment plan with a reason.
+      New Create Treatment Plan endpoint to create a new treatment plan for a case, with optional DC work
+      request type support ( modification , review , planning ).
+      New Request Case Modification endpoint to request a modification for a case.
+      New product type 4 (Whitening Tray) added to the Product Types reference table.
+      New treatment plan status pending_consultation added to the Treatment Plan Statuses reference
+      table.
+      New Post Case Comment endpoint to post a comment on a case.
+      The Add Case Shipping Address endpoint can now update the shipping address after a case has been
+      submitted, except for direct manufacturing cases, and rejects the update when the case's shipping
+      address is locked.
+      New case field in case response: expected_shipping_date -- an ISO 8601 datetime string
+      representing the expected shipping date set when the case enters production. null until a value is
+      provided.
+
+2.5
+
+      New comments webhook to send updates when new comments are added to a case.
+2.4
+
+      Cases in draft status can be edited with a new PATCH method of the case endpoint.
+      case_id is included in webhooks payload related to cases.
+      Treatment plan URL is included in treatment plans responses.
+      Documentation of maximum length accepted for text fields in requests.
+
+2.3
+
+      Deprecated case fields chief_complains and comments should be replaced with new field
+      doctor_instructions
+      Deprecated case field comment_tooth should be replaced with new field patient_chief_complaints
+      Removed case field trim_line.
+      Removed case field city.
+      Removed case field state_province.
+      Removed case field postal code.
+      New case field in case response: tracking_number.
+      New case field in case response: case_bite_scan.
+      New case field in case response: case_lower_scan.
+      Fix some documentation issues.
+
+2.2.1
+
+      Fix case shipping address end-point path in docs.
+
+2.2
+
+      A new doctors endpoint to list all doctors.
+      Every case can now have its own shipping address. Check Add Case Shipping Address for full details.
+      Case shipping address fields are now part of the retrieved case full information.
+
+2.1
+
+      When using the case submit endpoint, you can now request treatment planning for the case.
+      The only required information to create a case now is patient last name.
+
+Authentication
+
+To access the API endpoints you need an API secret key coupled with your UUID. You send those in your
+request headers for each request as X-KLINE-API-KEY and X-KLINE-API-USER-UUID . Your user UUID is
+the trailing string in the URL when you visit My Account screen.
+Generate API Secret Key
+
+Navigate to your account on the portal. Find the "Generate API Key" button under your account. If you
+can't find it, your account does not have the necessary permissions to generate an API Secret key. Contact
+your portal administrator to request the permission.
+
+Click the "Generate API Key" button. You need to accept K Line API terms of service then proceed. A new
+API Secret key will be generated and displayed only once. Copy the key and keep it safe. Do not share it
+with anyone.
+
+Generate a new API Secret Key
+
+If your account already has an API Secret key, you can generate a new one by clicking the "Generate API
+Key" button again. You will be prompted that the old key will be invalidated before creating a new one. If
+you agree, the new key will be generated and displayed only once. The old key will no longer be valid.
+Make sure to replace the old key with the new one in your application(s).
+
+Endpoints
+
+Base path for all endpoints is /api/v2/ . Endpoints can have parameters as part of the path. The
+parameters are shown in the path of each endpoint with curly braces. For example, {case_uuid} .
+
+Endpoints can have options sent as query string parameters. These are defined in each endpoint section
+below as query string parameters.
+
+POST and PATCH requests should have body content. The body is sent as JSON. The keys and expected
+values are shown under the body section of each endpoint.
+
+Each request should have a content-type header. The value of this header is shown under the headers
+section of each endpoint.
+
+Additional headers are shown under the headers section of each endpoint.
+
+Summary
+
+     Link          Path  Method Description
+Test
+                              Test if the
+
+            ping         GET  API is
+
+                              working.
+
+List Cases  cases                       List all
+
+                         GET
+
+                                        cases.
+     Link                     Path               Method Description
+List Doctors doctors
+                                                                List all
+
+                                                 GET
+
+                                                                doctors.
+
+Add Case   cases                                 POST   Adds a new
+                                                        case.
+
+Update     cases/<case_uuid>                     PATCH  Updates an
+Case                                                    existing
+                                                        draft case
+
+Retrieve                                                Retrieves a
+Case
+           cases/<case_uuid>                     GET    case
+
+                                                        details.
+
+Add Case   cases/<case_uuid>/shipping-address    PATCH  Updates the
+Shipping                                                shipping
+Address                                                 address for
+                                                        a case.
+
+Add Case   cases/<case_uuid>/files/{field_name}  POST   Upload a
+Files                                                   file for a
+                                                        case to a
+                                                        specific
+                                                        field.
+
+Submit     cases/<case_uuid>/submit              PATCH  Submits a
+Case                                                    case to K
+                                                        Line.
+
+List       cases/<case_uuid>/treatmentplans                     List all
+Treatment                                                       treatment
+Plans
+                                                 GET
+
+                                                                plans for a
+                                                                case.
+
+Retrieve                                                Retrieves
+Case
+Doctor     cases/<case_uuid>/doctor              GET    the case
+
+                                                        doctor.
+
+List Case                                               List all
+Comments
+           cases/<case_uuid>/comments            GET    comments
+
+                                                        on a case.
+     Link                                       Path             Method Description
+
+Post Case   cases/<case_uuid>/comments                           POST  Post a
+Comment     cases/<parent_uuid>/children                               public
+            cases/<parent_uuid>/refinement                             comment
+List Child                                                             on a case.
+Cases       cases/<parent_uuid>/phase-two
+                                                                                List all child
+Create      cases/<case_uuid>/retainer                                          cases of a
+Refinement
+Case        cases/<case_uuid>/whitening-tray                     GET
+            cases/<case_uuid>/treatmentplans/<plan_uuid>/accept
+Create                                                                          parent
+Phase 2                                                                         case.
+Case
+                                                                 POST  Creates a
+Create                                                                 refinement
+Retainer                                                               child case
+Case                                                                   from a
+                                                                       shipped
+Create                                                                 parent.
+Whitening
+Tray Case                                                        POST  Creates a
+                                                                       Phase 2
+Accept                                                                 child case
+Treatment                                                              from a
+Plan                                                                   shipped
+                                                                       parent.
+
+                                                                 POST  Creates a
+                                                                       retainer
+                                                                       child case
+                                                                       from a
+                                                                       shipped
+                                                                       parent.
+
+                                                                 POST  Creates a
+                                                                       whitening
+                                                                       tray child
+                                                                       case from a
+                                                                       shipped
+                                                                       parent.
+
+                                                                 POST  Accepts a
+                                                                       pending
+     Link                                         Path             Method  Description
+                                                                           treatment
+Reject        cases/<case_uuid>/treatmentplans/<plan_uuid>/reject          plan.
+Treatment     cases/<case_uuid>/treatmentplans
+Plan          cases/<case_uuid>/modification                       POST    Rejects a
+                                                                           pending
+Create                                                                     treatment
+Treatment                                                                  plan.
+Plan
+                                                                   POST    Creates a
+Request                                                                    new
+Case                                                                       treatment
+Modification                                                               plan for a
+                                                                           case.
+
+                                                                   POST    Requests a
+                                                                           modification
+                                                                           for a case in
+                                                                           plan review
+                                                                           or rejected
+                                                                           status.
+
+Response Template
+
+HTTP response code should be checked. Errors will be communicated through response codes. Anything
+other than 200 , 301 , or 302 will include an error message in the response JSON. The standard
+response format is as follows, see each endpoint details for more information about that specific endpoint
+response.
+
+{
+   "message": "A message in case of error responses",
+   "data": [ // an array in case of multiple items response, otherwise a single item
+       {
+          "key": "value" // an item represented in key:value pairs
+       }
+   ],
+   "metadata": "value" // if the response provides metadata, each metadata item will be provid
+
+}
+Endpoints Details
+
+Test
+
+path: ping
+method: GET
+headers:
+
+content-type: application/json
+query string parameters: none
+response:
+
+                          Key           Value
+
+message                         "pong"
+
+sample request:
+
+curl -X GET 'https://<your-domain>/api/v2/ping' \
+   -H 'Content-Type: application/json' \
+   -H 'X-Kline-Api-Key: 1234567890123456789012345678901234567890123456789012345678901234' \
+   -H 'X-Kline-Api-User-UUID: 123e4567-e89b-12d3-a456-426614174000'
+
+sample response:
+
+{
+   "data": {
+       "message": "pong"
+   }
+
+}
+
+List Cases
+
+Lists all cases under the current user.
+
+The results are paged at 20 cases per page. By default page 1 is retrieved. To retrieve a different page, add
+the page query parameter to the request. Page numbers are not zero indexed, they start at 1.
+
+The sort_field and sort_direction query parameters can be used to sort the results. If not set, default
+sorting is used.
+path: cases
+method: GET
+headers:
+
+content-type: application/json
+query string parameters:
+
+        Key                   Value       Default                  Description
+
+page            <page_number>             1        The page number to return. It must
+                                                   be between 1 and the total page
+sort_field      created                   created  numbers returned from response.
+                changed
+sort_direction  field_case_date_accepted  desc     The field to use for sorting.
+                                                   created: Sort by date of case
+                asc                                creation.
+                desc                               changed: Sort by the date the case
+                                                   was last updated.
+                                                   field_case_date_accepted: Sort
+                                                   by the date a case was accepted.
+
+                                                   The direction of sorting.
+                                                   asc: Ascending order.
+                                                   desc: Descending order.
+
+response:
+
+      Key        Type                                           Description
+                Array
+data                   An array of cases. Each case has the following fields:
+                       case_id: The internal case ID, integer.
+                       uuid: The case unique identifier, string.
+                       case_date_accepted: a date in the format yyyy-mm-dd, string.
+                       case_owner: uuid of the doctor who owns the case, string.
+                       first_name: Patient first name, string.
+                       last_name: Patient last name, string.
+                       patient_number: Patient uuid, string.
+                       product_type: The product type code, number. Check product types
+                       below.
+      Key         Type                                           Description
+                        case_status: The code representing the current status of the case,
+total_count             string. Check case status codes below
+total_pages
+current_page      Integer The total number of cases in all pages.
+
+                  Integer The total number of pages listing cases.
+
+                                The current page of results. This matches the page value you send in
+                  Integer
+
+                                options, or 1 in case you did not specify any pages.
+
+sample request:
+
+curl -X GET 'https://<your-domain>/api/v2/cases?page=1&sort_field=created&sort_direction=desc
+   -H 'Content-Type: application/json' \
+   -H 'X-Kline-Api-Key: 1234567890123456789012345678901234567890123456789012345678901234' \
+   -H 'X-Kline-Api-User-UUID: 123e4567-e89b-12d3-a456-426614174000'
+
+sample response:
+
+{
+   "data": [
+       {
+          "case_id": 1,
+          "uuid": "3942be3c-26d6-4618-a7ee-8c8144aec31d",
+          "case_date_accepted": "2020-01-01T00:00:00+00:00",
+          "case_owner": "123e4567-e89b-12d3-a456-426614174000",
+          "first_name": "John",
+          "last_name": "Doe",
+          "patient_number": "c56a4180-65aa-42ec-a945-5fd21dec0538",
+          "product_type": 0,
+          "case_status": "New"
+       }
+   ],
+   "total_count": 1,
+   "total_pages": 1,
+   "current_page": 1
+
+}
+
+List Doctors
+
+Lists all doctors under the current user's hierarchy.
+The results are paged at 20 doctors per page. By default page 1 is retrieved. To retrieve a different page,
+add the page query parameter to the request. Page numbers are not zero indexed, they start at 1.
+path: doctors
+method: GET
+headers:
+
+content-type: application/json
+query string parameters:
+
+Key              Value    Default  Description
+
+page       <page_number>                The page number to return. It must be between 1 and the
+
+                          1
+
+                                        total page numbers returned from response.
+
+response:
+
+      Key        Type              Description
+
+data             Array    An array of doctors. Each doctor has the following fields:
+                          uuid: The doctor's unique identifier, string.
+total_count               user_first_name: Doctor's first name, string.
+total_pages               user_last_name: Doctor's last name, string.
+current_page              user_clinic_name: Name of the doctor's clinic, string.
+                          user_country: The country code where the doctor is located, string.
+                          user_city: The city where the doctor is located, string.
+                          user_state_province: The state or province where the doctor is located,
+                          string or null.
+                          user_postal_code: The postal code of the doctor's location, string.
+                          user_telephone: The doctor's telephone number, string or null.
+                          status: The doctor's account status, either "active" or "blocked", string.
+                          mail: The doctor's email address, string.
+
+                 Integer The total number of doctors in all pages.
+
+                 Integer The total number of pages listing doctors.
+
+                               The current page of results. This matches the page value you send in
+                 Integer
+
+                               options, or 1 in case you did not specify any pages.
+
+sample request:
+  curl -X GET 'https://<your-domain>/api/v2/doctors?page=1' \
+      -H 'Content-Type: application/json' \
+      -H 'X-Kline-Api-Key: 1234567890123456789012345678901234567890123456789012345678901234' \
+      -H 'X-Kline-Api-User-UUID: 123e4567-e89b-12d3-a456-426614174000'
+
+sample response:
+
+  {
+      "data": [
+          {
+             "uuid": "b7c9d8e1-f2a3-4b5c-6d7e-8f9a0b1c2d3e",
+             "user_first_name": "Sarah",
+             "user_last_name": "Johnson",
+             "user_clinic_name": "Smile Dental",
+             "user_country": "US",
+             "user_city": "Seattle",
+             "user_state_province": "WA",
+             "user_postal_code": "98101",
+             "user_telephone": "+1-206-555-0123",
+             "status": "active",
+             "mail": "sarah.johnson@example.com"
+          },
+          {
+             "uuid": "c8d9e0f1-a2b3-4c5d-6e7f-8a9b0c1d2e3f",
+             "user_first_name": "Michael",
+             "user_last_name": "Chen",
+             "user_clinic_name": "Dental Care",
+             "user_country": "CA",
+             "user_city": "Vancouver",
+             "user_state_province": "BC",
+             "user_postal_code": "V6B 1A1",
+             "user_telephone": "+1-604-555-0123",
+             "status": "active",
+             "mail": "michael.chen@example.com"
+          }
+      ],
+      "total_count": 2,
+      "total_pages": 1,
+      "current_page": 1
+
+  }
+Add Case
+
+Adds a new case. The case will be created but not submitted to K Line until the Submit Case endpoint is
+called.
+path: cases
+method: POST
+headers:
+
+content-type: application/json
+
+X-Kline-Doctor-Id: Optional. The ID of the doctor that owns the case.
+query string parameters: none
+body:
+
+              Key       Type     Max    Description                                      Default
+attachments          Integer    Length                                 Required
+chief_complains      String
+                                                                                          Value
+comments             String
+                                        Seeyes/no/recommended No           2
+comment_tooth        String
+doctor_instructions  String             Patient's Chief
+first_name           String
+                                long    Complaint.
+
+                                text    DEPRECATED, use                No  null
+
+                                        patient_chief_complaints
+
+                                        instead.
+
+                                        Doctor's general case
+
+                                long    instructions.
+
+                                text    DEPRECATED, use                No  null
+
+                                        doctor_instructions
+
+                                        instead.
+
+                                        Doctor's instructions.
+
+                                255     DEPRECATED, use                No  null
+
+                                        doctor_instructions
+
+                                        instead
+
+                                long    Doctor's instructions.         No  null
+
+                                text
+
+                                50      Patient first name             No  null
+           Key    Type           Max             Description        Required  Default
+
+                                 Length                                       Value
+
+last_name         String         50      Patient last name          Yes       N/A
+
+gender            Integer                Patient's gender.          Yes       N/A
+                                         Seegender
+
+impression_type   Integer                The impression type to     No        0
+
+                                         use. Seeimpression types
+
+ipr               Integer                IPR choice.                No        2
+
+                                         Seeyes/no/recommended
+
+lower_range       Integer                Lower range.               No        2
+
+                                         Seelower/upper range
+
+midline           Integer                Midline improvement.       No        1
+
+                                         Seemaintain/improve
+
+overbite          Integer                Overbite improvement.      No        1
+
+                                         Seemaintain/improve
+
+overjet           Integer                Overjet improvement.       No        1
+
+                                         Seemaintain/improve
+
+patient_chief_complaints String  long    Patient's Chief            No        null
+
+                                 text    Complaints.
+
+                                         The product type
+
+product_type      Integer                required. Seeproduct       No        0
+
+                                         types
+
+                                         An ISO 8601 datetime
+
+radiographs_date  DateTime               string. Seedatetime        No        null
+
+                                         values
+
+retainer_type     Integer                The retainer type to use.  No        1
+
+                                         Seeretainer types
+
+treat             Integer                Which arches to treat.     No        0
+
+                                         Seearches treatment
+
+                                         Which treatment type is
+
+treatment_type    Integer                required. Seetreatment     No        2
+
+                                         types
+                Key     Type   Max    Description                             Default
+  upper_range        Integer  Length                        Required
+sample request:
+                                                                               Value
+
+                                      Upper range option.   No  2
+                                      Seelower/upper range
+
+curl -X POST 'https://<your-domain>/api/v2/cases' \
+   -H 'Content-Type: application/json' \
+   -H 'X-Kline-Api-Key: 1234567890123456789012345678901234567890123456789012345678901234' \
+   -H 'X-Kline-Api-User-UUID: 123e4567-e89b-12d3-a456-426614174000' \
+   -H 'X-Kline-Doctor-Id: 123e4567-e89b-12d3-a456-426614174000' \
+   -d '{
+       "attachments": 2,
+       "doctor_instructions": "These are the doctor's instructions.",
+       "first_name": "John",
+       "last_name": "Doe",
+       "gender": 0,
+       "impression_type": 0,
+       "ipr": 2,
+       "lower_range": 2,
+       "midline": 1,
+       "overbite": 1,
+       "overjet": 1,
+       "patient_chief_complaints": "This is the patient chief complaint.",
+       "product_type": 0,
+       "radiographs_date": "2020-01-01T00:00:00+00:00",
+       "retainer_type": 0,
+       "treat": 0,
+       "treatment_type": 2,
+       "upper_range": 2
+   }'
+
+sample response: the created case, same as Retrieve Case.
+
+Update Case
+
+Updates an existing case that is still in draft state. Only specific fields are allowed to be updated. If the
+case is no longer in draft (field_case_status  New), the update will be rejected.
+path: cases/{uuid}
+method: PATCH
+headers:
+
+Content-Type: application/json
+
+X-Kline-Doctor-Id: Optional. The ID of the doctor that owns the case. It will replace the current case doctor.
+query string parameters:
+none
+body:
+One or more fields from the Add Case body fields, except the product_type which cannot be changed
+after case creation. The new values of the fields overrides the old values. All other fields will not be
+changed.
+sample request:
+
+  curl -X PATCH 'https://<your-domain>/api/v2/cases/123e4567-e89b-12d3-a456-426614174000' \
+      -H 'Content-Type: application/json' \
+      -H 'X-Kline-Api-Key: 1234567890123456789012345678901234567890123456789012345678901234' \
+      -H 'X-Kline-Api-User-UUID: 123e4567-e89b-12d3-a456-426614174000' \
+      -d '{
+          "patient_chief_complaints": "Updated chief complaints",
+      }'
+
+sample response: the updated case, same as Retrieve Case.
+
+Retrieve Case
+
+Retrieves a case details.
+path: cases/{case-uuid}
+method: GET
+headers:
+
+content-type: application/json
+query string parameters: none
+response:
+            Key      Type                                Description
+
+case_id              Integer The internal case ID.
+
+uuid                 String      The case unique identifier.
+
+case_bite_scan       String      URL of bite scan file
+
+case_date_accepted   Datetime ISO 8601 datetime string. Seedatetime values.
+
+case_lower_scan      String      URL of lower scan file
+
+case_other_docs      Array       Array of URLs of other documents files.
+
+case_owner           String      UUID of the doctor who owns the case.
+
+case_radiographs     Array       Array of URLs of case radiographs files.
+
+case_status          String      Code representing the current status of the case. Seecase
+                                 status codes.
+
+case_upper_scan      String      URL of upper scan file
+
+doctor_instructions  String      Doctor's instructions.
+
+first_name           String      Patient first name.
+
+gender               Integer Patient's gender. Seegender.
+
+impression_type      Integer The impression type to use. Seeimpression types.
+
+ipr                  Integer IPR choice. Seeyes/no/recommended.
+
+last_name            String      Patient last name.
+
+midline              Integer Midline improvement. Seemaintain/improve.
+
+original_case        String      UUID of the original case if this is a child case.
+
+overbite             Integer Overbite improvement. Seemaintain/improve.
+
+overjet              Integer Overjet improvement. Seemaintain/improve.
+
+patient_chief_complaints String  Patient's Chief Complaints.
+
+patient_number       String      Patient code.
+
+product_type         Integer The product type required. Seeproduct types.
+
+shipping_city        String      The shipping city.
+
+shipping_company     String      The shipping company name.
+Key                   Type                                       Description
+                                The shipping country code.
+shipping_country      String    The shipping email address.
+                                The shipping recipient's full name.
+shipping_email_address String   The shipping phone number.
+                                The shipping postal code.
+shipping_full_name    String    The shipping state/province.
+                                The shipping street address.
+shipping_phone_number String    ISO 8601 datetime string representing the expected shipping
+                                date set when the case enters production. null until a value
+shipping_postal_code  String    is provided. See datetime values.
+                                For shipped cases. A string containing the tracking number of
+shipping_state_province String  the shipped package, or a space delimited string with the
+                                courier name followed by the tracking number.
+shipping_street_address String  Which arches to treat. Seearches treatment.
+                                Which treatment type is required. Seetreatment types.
+expected_shipping_date String
+
+  tracking_number     String
+
+  treat               Integer
+  treatment_type      Integer
+sample request:
+
+curl -X GET 'https://<your-domain>/api/v2/cases/3942be3c-26d6-4618-a7ee-8c8144aec31d' \
+   -H 'Content-Type: application/json' \
+   -H 'X-Kline-Api-Key: 1234567890123456789012345678901234567890123456789012345678901234' \
+   -H 'X-Kline-Api-User-UUID: 123e4567-e89b-12d3-a456-426614174000'
+
+sample response:
+{
+   "data": {
+       "case_id": 1,
+       "uuid": "3942be3c-26d6-4618-a7ee-8c8144aec31d",
+       "case_bite_scan": "https://<your-domain>/files/case/bite-scan/bites-can.stl",
+       "case_date_accepted": "2020-01-01T00:00:00+00:00",
+       "case_lower_scan": "https://<your-domain>/files/case/lower-scan/lower-scan.stl",
+       "case_other_docs": [
+          "https://<your-domain>/files/case/other-docs/file1.stl",
+          "https://<your-domain>/files/case/other-docs/file2.stl"
+       ],
+       "case_owner": "123e4567-e89b-12d3-a456-426614174000",
+       "case_radiographs": [
+          "https://<your-domain>/files/case/radiographs/radiographs.zip"
+       ],
+       "case_status": "InProduction",
+       "case_upper_scan": "https://<your-domain>/files/case/upper-scan/upper-scan.stl",
+       "doctor_instructions": "The instructions from the doctor.",
+       "first_name": "John",
+       "gender": 0,
+       "impression_type": 0,
+       "ipr": 2,
+       "last_name": "Doe",
+       "midline": 1,
+       "original_case": null,
+       "overbite": 1,
+       "overjet": 1,
+       "patient_chief_complaints": "This is a chief complain",
+       "patient_number": "c56a4180-65aa-42ec-a945-5fd21dec0538",
+       "product_type": 0,
+       "shipping_city": "New York",
+       "shipping_company": "Dental Clinic Inc.",
+       "shipping_country": "US",
+       "shipping_email_address": "john.doe@example.com",
+       "shipping_full_name": "John Doe",
+       "shipping_phone_number": "+1234567890",
+       "shipping_postal_code": "10001",
+       "shipping_state_province": "NY",
+       "shipping_street_address": "123 Main Street",
+       "treat": 0,
+       "tracking_number": null,
+       "treatment_type": 2,
+       "expected_shipping_date": null
+   }
+
+}
+Add Case Shipping Address
+
+Updates the shipping address of a case. All fields are required -- the request fully replaces the case's
+shipping address.
+
+This endpoint can be used while a case is in draft and after it has been submitted, with one exception: a
+submitted direct manufacturing case cannot have its shipping address changed. The update is also
+rejected when the case's shipping address is locked.
+
+path: cases/{case-uuid}/shipping-address
+
+method: PATCH
+
+headers:
+
+content-type: application/json
+query string parameters: none
+body:
+
+Key                   Type            Max              Description      Required Default
+
+                                      Length  The street address
+                                              The city
+shipping_street_address String 255            The country code (ISO     Yes  N/A
+                                              3166-1 alpha-2)
+shipping_city         String 255              The postal/zip code       Yes  N/A
+                                              The state or province
+shipping_country      String 2                The full name of the      Yes  N/A
+                                              recipient
+shipping_postal_code  String 10               The phone number of the   Yes  N/A
+                                              recipient
+shipping_state_province String 64             The email address of the  Yes  N/A
+                                              recipient
+shipping_full_name    String 255              The company name          Yes  N/A
+
+shipping_phone_number String 15                                         Yes  N/A
+
+shipping_email_address String 255                                       Yes  N/A
+
+shipping_company      String 150                                        Yes  N/A
+
+response: The same as Retrieve Case.
+errors:
+
+Status                                   Reason
+
+             A required field is missing, the country code is invalid, or a value exceeds its maximum
+
+400
+
+             length.
+
+404      The case was not found, or it is outside the authenticated user's hierarchy.
+
+409      The shipping address is locked and cannot be updated.
+
+409      The case is a submitted direct manufacturing case; its shipping address cannot be changed.
+
+sample request:
+
+curl -X PATCH 'https://<your-domain>/api/v2/cases/3942be3c-26d6-4618-a7ee-8c8144aec31d/shippi
+   -H 'Content-Type: application/json' \
+   -H 'X-Kline-Api-Key: 1234567890123456789012345678901234567890123456789012345678901234' \
+   -H 'X-Kline-Api-User-UUID: 123e4567-e89b-12d3-a456-426614174000' \
+   -d '{
+       "shipping_street_address": "123 Main Street",
+       "shipping_city": "New York",
+       "shipping_country": "US",
+       "shipping_postal_code": "10001",
+       "shipping_state_province": "NY",
+       "shipping_full_name": "John Doe",
+       "shipping_phone_number": "+1234567890",
+       "shipping_email_address": "john.doe@example.com",
+       "shipping_company": "Dental Clinic Inc."
+   }'
+
+Add Case Files
+
+Upload a file to a case and attach it to a specific file field.
+path: cases/{case-uuid}/files/{field_name}
+The {field_name} parameter must be one of the following:
+
+              {field_name}  Description                          Allowed extensions                    Draft
+field_case_upper_scan                                                                                  only
+field_case_lower_scan       Upper scan   stl obj ply dcm                                               Yes
+                            Lower scan   stl obj ply dcm
+                                                                                                       Yes
+              {field_name}    Description                 Allowed extensions      Draft
+field_case_bite_scan                                                              only
+field_case_radiographs        Bite scan      stl obj ply dcm                      Yes
+                                             png jpg jpeg                         Yes
+field_case_clinical_photo_01  Radiographs
+field_case_clinical_photo_02  (multiple      png jpg jpeg                         Yes
+field_case_clinical_photo_03  files          png jpg jpeg                         Yes
+field_case_clinical_photo_04  allowed)       png jpg jpeg                         Yes
+field_case_clinical_photo_05                 png jpg jpeg                         Yes
+field_case_clinical_photo_06  Frontal face   png jpg jpeg                         Yes
+field_case_clinical_photo_07  -- repose      png jpg jpeg                         Yes
+field_case_clinical_photo_08                 png jpg jpeg                         Yes
+field_case_clinical_photo_09  Frontal face   png jpg jpeg                         Yes
+                              -- smile       png jpg jpeg                         Yes
+field_case_other_docs
+                              Right profile  zip tar png jpg jpeg pdf stl rar 7z  No
+                              -- repose
+
+                              Left profile
+                              -- repose
+
+                              Frontal
+                              occlusion
+
+                              Right lateral
+                              occlusion
+
+                              Left lateral
+                              occlusion
+
+                              Upper arch
+                              occlusal
+
+                              Lower arch
+                              occlusal
+
+                              Other
+                              documents
+                              (multiple
+                              files
+                              allowed)
+
+Any other value returns a 404 response.
+Draft-only fields: scan and photo fields ( Draft only: Yes ) only accept uploads while the case is in Draft
+status. Uploading to any of those fields on a submitted case returns 403 . field_case_other_docs
+accepts uploads at any case status.
+
+Backward compatibility: the legacy path cases/{case-uuid}/files (without
+ {field_name} ) continues to work and defaults to field_case_other_docs .
+
+method: POST
+
+Two upload modes are supported:
+
+Binary stream ( application/octet-stream ):
+
+headers:
+
+content-type: application/octet-stream
+
+content-disposition: attachment; filename="[file_name]"
+body: the raw binary file data
+Multipart form ( multipart/form-data ):
+headers:
+
+content-type: multipart/form-data
+body: a standard multipart form containing exactly one file part (any field name)
+query string parameters: none
+response:
+
+      Key                        Type                                Description
+                                        An object containing:
+data       Object                        uuid : String, the case uuid
+                                        The file uuid
+file_uuid  String
+
+sample request (binary stream):
+curl -X POST 'https://<your-domain>/api/v2/cases/3942be3c-26d6-4618-a7ee-8c8144aec31d/files/f
+   -H 'Content-Type: application/octet-stream' \
+   -H 'Content-Disposition: attachment; filename="file.stl"' \
+   -H 'X-Kline-Api-Key: 1234567890123456789012345678901234567890123456789012345678901234' \
+   -H 'X-Kline-Api-User-UUID: 123e4567-e89b-12d3-a456-426614174000' \
+   --data-binary @/path/to/file.stl
+
+sample request (multipart):
+
+  curl -X POST 'https://<your-domain>/api/v2/cases/3942be3c-26d6-4618-a7ee-8c8144aec31d/files/f
+      -H 'X-Kline-Api-Key: 1234567890123456789012345678901234567890123456789012345678901234' \
+      -H 'X-Kline-Api-User-UUID: 123e4567-e89b-12d3-a456-426614174000' \
+      -F 'file=@/path/to/file.stl'
+
+sample response:
+
+{
+   "data": {
+       "uuid": "3942be3c-26d6-4618-a7ee-8c8144aec31d"
+   },
+   "file_uuid": "cbbab578-5b00-489f-ade8-212c8c02f3d2"
+
+}
+
+Submit Case
+
+Submit a draft case to K Line to start the manufacturing or treatment process.
+path: cases/{case-uuid}/submit
+method: PATCH
+headers:
+
+content-type: application/json
+body:
+
+Key                          Type  Description                                   Required Default
+
+treatment_planning  Boolean        If the case product type is 0 (Clear          No  false
+                                   Aligners), setting this value to true will
+                                   request a treatment plan instead of directly
+                                   manufacturing the aligners. For other
+      Key        Type                   Description                       Required Default
+
+                                product types this is ignored and has no
+                                effect.
+
+query string parameters: none
+response: The same as Retrieve Case.
+sample request:
+
+curl -X PATCH 'https://<your-domain>/api/v2/cases/3942be3c-26d6-4618-a7ee-8c8144aec31d/submit
+   -H 'Content-Type: application/json' \
+   -H 'X-Kline-Api-Key: 1234567890123456789012345678901234567890123456789012345678901234' \
+   -H 'X-Kline-Api-User-UUID: 123e4567-e89b-12d3-a456-426614174000'
+
+List Treatment Plans
+
+Lists all treatment plans for a case.
+path: cases/{case-uuid}/treatmentplans
+method: GET
+headers:
+
+content-type: application/json
+query string parameters: none
+response:
+
+Key   Type                              Description
+
+data  Array      An array of treatment plans. Each item has the following structure:
+                  uuid : the plan uuid.
+                  treatment_plan_statuses : string, the status of the treatment plan. See treatment
+                 plan statuses.
+                  treatment_plan_read : string, the URL to view the treatment plan.
+                  treatment_plan_share : string, the URL to share the treatment plan.
+                  treatment_plan_request : string, the request type if set (e.g. "consultation" ),
+                 otherwise null.
+
+sample request:
+  curl -X GET 'https://<your-domain>/api/v2/cases/3942be3c-26d6-4618-a7ee-8c8144aec31d/treatmen
+      -H 'Content-Type: application/json' \
+      -H 'X-Kline-Api-Key: 1234567890123456789012345678901234567890123456789012345678901234' \
+      -H 'X-Kline-Api-User-UUID: 123e4567-e89b-12d3-a456-426614174000'
+
+sample response:
+
+{
+   "data": [
+       {
+          "uuid": "3942be3c-26d6-4618-a7ee-8c8144aec31d",
+          "treatment_plan_statuses": "accepted",
+          "treatment_plan_read": "https://<stored-link-url>",
+          "treatment_plan_share": "https://<stored-link-url>",
+          "treatment_plan_request": null
+       }
+   ]
+
+}
+
+Create Treatment Plan
+
+Creates a new treatment plan for a case. Adding a treatment plan is not available to all clients. Please
+consult your agreement.
+path: cases/{case_uuid}/treatmentplans
+method: POST
+headers:
+
+content-type: application/json
+query string parameters: none
+body:
+
+              Key  Type         Description                         Required
+                                                                    Yes
+plan_url           String URL of the treatment plan document.       No
+aligners_upper                                                      No
+aligners_lower     String Number or description of upper aligners.
+
+                   String Number or description of lower aligners.
+              Key       Type                            Description           Required
+
+treatment_plan_request        Type of DC work being requested. One of:
+
+                              "modification" (DC enhances an existing plan),
+
+                        String "review" (DC reviews and comments),            No
+
+                              "planning" (DC builds a plan from scratch).
+
+                              Omit for a standard plan upload.
+
+response:
+
+Key        Type               Description
+
+data       Object  An object containing:
+                    uuid : String, the newly created treatment plan uuid.
+                    treatment_plan_statuses : String, initial status of the plan ( pending ,
+                    pending_consultation , or pending_review ). See treatment plan statuses.
+
+sample request:
+
+  curl -X POST 'https://<your-domain>/api/v2/cases/3942be3c-26d6-4618-a7ee-8c8144aec31d/treatme
+      -H 'Content-Type: application/json' \
+      -H 'X-Kline-Api-Key: 1234567890123456789012345678901234567890123456789012345678901234' \
+      -H 'X-Kline-Api-User-UUID: 123e4567-e89b-12d3-a456-426614174000' \
+      -d '{
+          "plan_url": "https://example.com/plans/plan-v1.pdf",
+          "aligners_upper": "14",
+          "aligners_lower": "12"
+      }'
+
+sample response:
+
+{
+   "data": {
+       "uuid": "f6a7b8c9-d0e1-2345-fabc-456789012345",
+       "treatment_plan_statuses": "pending"
+   }
+
+}
+
+Accept Treatment Plan
+
+Accepts a pending treatment plan for a case. The case must be in PendingPlanReview status. Sibling
+plans on the same case are automatically rejected.
+path: cases/{case_uuid}/treatmentplans/{plan_uuid}/accept
+method: POST
+headers:
+
+content-type: application/json
+query string parameters: none
+body: none required.
+response:
+
+Key   Type                                    Description
+
+data  Object       The updated treatment plan. Contains treatment_plan_statuses (now
+                    accepted ) and related plan fields.
+
+error conditions:
+
+ HTTP Code                                                           Condition
+                   Case or plan not found, or plan does not belong to this case.
+404                Case is not in PendingPlanReview status, or plan is already finalised.
+409                Plan is managed externally (Titan workflow).
+403
+
+sample request:
+
+curl -X POST 'https://<your-domain>/api/v2/cases/3942be3c-26d6-4618-a7ee-8c8144aec31d/treatme
+   -H 'Content-Type: application/json' \
+   -H 'X-Kline-Api-Key: 1234567890123456789012345678901234567890123456789012345678901234' \
+   -H 'X-Kline-Api-User-UUID: 123e4567-e89b-12d3-a456-426614174000'
+
+sample response:
+
+{
+   "data": {
+       "treatment_plan_statuses": "accepted"
+   }
+
+}
+Reject Treatment Plan
+
+Rejects a pending treatment plan for a case. The case must be in PendingPlanReview status. The
+rejection reason is stored as a comment on the case.
+path: cases/{case_uuid}/treatmentplans/{plan_uuid}/reject
+method: POST
+headers:
+
+content-type: application/json
+query string parameters: none
+body:
+
+  Key       Type                                      Description                          Required
+           String  A non-empty explanation of why the plan is being rejected.              Yes
+reason
+
+response:
+
+Key        Type                 Description
+
+data       Object  The updated treatment plan. Contains treatment_plan_statuses (now
+                    rejected ) and related plan fields.
+
+error conditions:
+
+ HTTP Code                                                           Condition
+                    reason is missing or empty.
+400                Case or plan not found, or plan does not belong to this case.
+404                Case is not in PendingPlanReview status, or plan is already finalised.
+409                Plan is managed externally (Titan workflow).
+403
+
+sample request:
+  curl -X POST 'https://<your-domain>/api/v2/cases/3942be3c-26d6-4618-a7ee-8c8144aec31d/treatme
+      -H 'Content-Type: application/json' \
+      -H 'X-Kline-Api-Key: 1234567890123456789012345678901234567890123456789012345678901234' \
+      -H 'X-Kline-Api-User-UUID: 123e4567-e89b-12d3-a456-426614174000' \
+      -d '{
+          "reason": "The midline correction shown in the plan does not match the clinical targets."
+      }'
+
+sample response:
+
+{
+   "data": {
+       "treatment_plan_statuses": "rejected"
+   }
+
+}
+
+Request Case Modification
+
+Requests a modification for a case. The case must be in PendingPlanReview or PlanRejected status.
+The endpoint transitions the case to InPlanning , and records the reason as a prefixed comment on the
+case.
+
+path: cases/{case_uuid}/modification
+
+method: POST
+
+headers:
+
+content-type: application/json
+query string parameters: none
+body:
+
+  Key    Type                                       Description               Required
+        String  A non-empty explanation of the modification being requested.  Yes
+reason
+
+response: Empty data on success ( 201 ).
+error conditions:
+      HTTP Code                                                  Condition
+                  reason is missing or empty.
+    400          Access denied -- case is not within the caller's hierarchy.
+    403          Case not found.
+    404          Case is not in PendingPlanReview or PlanRejected status.
+    409
+
+sample request:
+
+  curl -X POST 'https://<your-domain>/api/v2/cases/3942be3c-26d6-4618-a7ee-8c8144aec31d/modific
+      -H 'Content-Type: application/json' \
+      -H 'X-Kline-Api-Key: 1234567890123456789012345678901234567890123456789012345678901234' \
+      -H 'X-Kline-Api-User-UUID: 123e4567-e89b-12d3-a456-426614174000' \
+      -d '{
+          "reason": "Please adjust the upper midline by 1mm to the right."
+      }'
+
+sample response:
+
+{
+   "data": null
+
+}
+
+Retrieve Case Doctor
+
+Retrieves a case assigned doctor.
+path: cases/{case-uuid}/doctor
+method: GET
+headers:
+
+content-type: application/json
+query string parameters: none
+response:
+Key   Type        Description
+
+data  Object      An object containing:
+                   uuid : String, the doctor uuid.
+                   user_address : String, the doctor address.
+                   user_birthdate : String, the doctor birthdate in ISO 8601 format. See datetime
+                  values.
+                   user_city : String, the doctor city.
+                   user_clinic_name : String, the doctor clinic name.
+                   user_country : String, the doctor country.
+                   user_first_name : String, the doctor first name.
+                   user_hierarchy : String, the doctor hierarchy.
+                   user_last_name : String, the doctor last name.
+                   user_postal_code : String, the doctor postal code.
+                   user_state_province : String, the doctor state/province.
+                   user_telephone : String, the doctor telephone.
+
+sample request:
+
+curl -X GET 'https://<your-domain>/api/v2/cases/3942be3c-26d6-4618-a7ee-8c8144aec31d/doctor'
+   -H 'Content-Type: application/json' \
+   -H 'X-Kline-Api-Key: 1234567890123456789012345678901234567890123456789012345678901234' \
+   -H 'X-Kline-Api-User-UUID: 123e4567-e89b-12d3-a456-426614174000'
+
+sample response:
+
+{
+   "data": {
+       "uuid": "3942be3c-26d6-4618-a7ee-8c8144aec31d",
+       "user_address": "123 Main Street",
+       "user_birthdate": "1990-01-01T00:00:00+00:00",
+       "user_city": "New York",
+       "user_clinic_name": "Kline",
+       "user_country": "USA",
+       "user_first_name": "John",
+       "user_hierarchy": "doctor",
+       "user_last_name": "Doe",
+       "user_postal_code": "10001",
+       "user_state_province": "NY",
+       "user_telephone": "1234567890"
+   }
+
+}
+List Case Comments
+
+Lists all comments for a case.
+path: cases/{case-uuid}/comments
+method: GET
+headers:
+
+content-type: application/json
+query string parameters: none
+response:
+
+  Key   Type                                                   Description
+       Array
+data              An array of comments. Each comment has the following fields:
+                   uuid : The comment uuid.
+                   comments : String, the comment text.
+                   author : String, the display name of the comment author.
+                   author_uuid : String, the UUID of the comment author.
+
+sample request:
+
+curl -X GET 'https://<your-domain>/api/v2/cases/3942be3c-26d6-4618-a7ee-8c8144aec31d/comments
+   -H 'Content-Type: application/json' \
+   -H 'X-Kline-Api-Key: 1234567890123456789012345678901234567890123456789012345678901234' \
+   -H 'X-Kline-Api-User-UUID: 123e4567-e89b-12d3-a456-426614174000'
+
+sample response:
+
+{
+   "data": [
+       {
+          "author": "John Doe",
+          "author_uuid": "123e4567-e89b-12d3-a456-426614174000",
+          "uuid": "3942be3c-26d6-4618-a7ee-8c8144aec31d",
+          "comments": "This is a comment"
+       }
+   ]
+
+}
+Post Case Comment
+
+Posts a comment on a case on behalf of the authenticated user (or on behalf of a doctor when
+ X-Kline-Doctor-Id is supplied).
+path: cases/{case-uuid}/comments
+method: POST
+headers:
+
+content-type: application/json
+
+X-Kline-Doctor-Id: Optional. UUID of the doctor to post as. Must be a doctor within the caller's hierarchy.
+query string parameters: none
+body:
+
+   Key        Type                                         Description                Required
+           String            The comment text. Must be non-empty.                  Yes
+text
+
+response:
+
+   Key                 Type                                           Description
+                   Object
+data                         The created comment. Contains:
+                              uuid : String, the comment uuid.
+                              comments : String, the comment text as stored.
+
+error conditions:
+
+ HTTP                                                            Condition
+ Code
+            text is missing, empty, or request body is not valid JSON.
+400        Case not found or not within the caller's hierarchy. Doctor supplied in
+            X-Kline-Doctor-Id not found, not a doctor, or not within the caller's hierarchy.
+404        Internal error saving the comment.
+
+500
+
+sample request:
+  curl -X POST 'https://<your-domain>/api/v2/cases/3942be3c-26d6-4618-a7ee-8c8144aec31d/comment
+      -H 'Content-Type: application/json' \
+      -H 'X-Kline-Api-Key: 1234567890123456789012345678901234567890123456789012345678901234' \
+      -H 'X-Kline-Api-User-UUID: 123e4567-e89b-12d3-a456-426614174000' \
+      -d '{
+          "text": "Please check the upper midline alignment."
+      }'
+
+sample response:
+
+{
+   "data": {
+       "uuid": "7f8a9b0c-1d2e-3456-fabc-789012345678",
+       "comments": "Please check the upper midline alignment."
+   }
+
+}
+
+List Child Cases
+
+Lists all direct child cases (refinement, Phase 2, retainer, whitening tray) of a given parent case. Results are
+ordered oldest first.
+path: cases/{parent_uuid}/children
+method: GET
+headers:
+
+content-type: application/json
+query string parameters: none
+response:
+
+Key   Type                      Description
+
+data              An array of child cases. Each item contains case_id (integer node ID) plus all fields
+      Array
+
+                  from Retrieve Case, including product_type and case_status .
+
+sample request:
+  curl -X GET 'https://<your-domain>/api/v2/cases/3942be3c-26d6-4618-a7ee-8c8144aec31d/children
+      -H 'Content-Type: application/json' \
+      -H 'X-Kline-Api-Key: 1234567890123456789012345678901234567890123456789012345678901234' \
+      -H 'X-Kline-Api-User-UUID: 123e4567-e89b-12d3-a456-426614174000'
+
+sample response:
+
+  {
+      "data": [
+          {
+             "case_id": 42,
+             "uuid": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+             "product_type": 2,
+             "case_status": "New",
+             "original_case": "3942be3c-26d6-4618-a7ee-8c8144aec31d",
+             "first_name": "John",
+             "last_name": "Doe"
+          }
+      ]
+
+  }
+
+Create Refinement Case
+
+Creates a refinement child case linked to the given parent. The parent must be in Shipped status. All fields
+are inherited from the parent case; only the fields listed below can be supplied in the request body.
+
+ product_type is always set to 2 (Refinements) regardless of parent.
+
+path: cases/{parent_uuid}/refinement
+
+method: POST
+
+headers:
+
+content-type: application/json
+
+X-Kline-Doctor-Id: Optional. UUID of the doctor to assign as case owner. Must be a doctor within the
+caller's hierarchy. Defaults to the parent case's doctor.
+
+query string parameters: none
+
+body:
+                Key        Type                          Description                             Required
+                          String   Doctor's instructions for the refinement.                     No
+doctor_instructions       Integer  The impression type. See impression types.                    No
+impression_type           String   Patient's chief complaints.                                   No
+patient_chief_complaints
+
+response: The created child case. case_id (integer node ID) plus all fields from Retrieve Case.
+ product_type will be 2 .
+
+sample request:
+
+  curl -X POST 'https://<your-domain>/api/v2/cases/3942be3c-26d6-4618-a7ee-8c8144aec31d/refinem
+      -H 'Content-Type: application/json' \
+      -H 'X-Kline-Api-Key: 1234567890123456789012345678901234567890123456789012345678901234' \
+      -H 'X-Kline-Api-User-UUID: 123e4567-e89b-12d3-a456-426614174000' \
+      -d '{
+          "doctor_instructions": "Focus on upper left crowding.",
+          "impression_type": 0,
+          "patient_chief_complaints": "Upper front teeth still crowded."
+      }'
+
+sample response:
+
+{
+   "data": {
+       "case_id": 43,
+       "uuid": "b2c3d4e5-f6a7-8901-bcde-f12345678901",
+       "product_type": 2,
+       "case_status": "New",
+       "original_case": "3942be3c-26d6-4618-a7ee-8c8144aec31d",
+       "first_name": "John",
+       "last_name": "Doe",
+       "doctor_instructions": "Focus on upper left crowding.",
+       "impression_type": 0,
+       "patient_chief_complaints": "Upper front teeth still crowded."
+   }
+
+}
+
+Create Phase 2 Case
+
+Creates a Phase 2 child case linked to the given parent. The parent must be in Shipped status. All fields
+are inherited from the parent case; only the fields listed below can be supplied in the request body.
+ product_type is inherited from the parent (unlike refinements).
+path: cases/{parent_uuid}/phase-two
+method: POST
+headers:
+
+content-type: application/json
+
+X-Kline-Doctor-Id: Optional. UUID of the doctor to assign as case owner. Must be a doctor within the
+caller's hierarchy. Defaults to the parent case's doctor.
+query string parameters: none
+
+body:
+
+                Key             Type  Description                                                Required
+                                                                                                 No
+doctor_instructions             String Doctor's instructions for Phase 2.                        No
+impression_type                                                                                  No
+patient_chief_complaints        Integer The impression type. See impression types.
+
+                                String Patient's chief complaints.
+
+response: The created child case. case_id (integer node ID) plus all fields from Retrieve Case.
+sample request:
+
+curl -X POST 'https://<your-domain>/api/v2/cases/3942be3c-26d6-4618-a7ee-8c8144aec31d/phase-t
+   -H 'Content-Type: application/json' \
+   -H 'X-Kline-Api-Key: 1234567890123456789012345678901234567890123456789012345678901234' \
+   -H 'X-Kline-Api-User-UUID: 123e4567-e89b-12d3-a456-426614174000' \
+   -d '{
+       "doctor_instructions": "Continue Phase 2 treatment.",
+       "impression_type": 0
+   }'
+
+sample response:
+{
+   "data": {
+       "case_id": 44,
+       "uuid": "c3d4e5f6-a7b8-9012-cdef-123456789012",
+       "product_type": 0,
+       "case_status": "New",
+       "original_case": "3942be3c-26d6-4618-a7ee-8c8144aec31d",
+       "first_name": "John",
+       "last_name": "Doe",
+       "doctor_instructions": "Continue Phase 2 treatment.",
+       "impression_type": 0
+   }
+
+}
+
+Create Retainer Case
+
+Creates a retainer child case linked to the given parent. The parent must be in Shipped status. All fields are
+inherited from the parent case; only the fields listed below can be supplied in the request body.
+ product_type is always set to 1 (Retainer).
+path: cases/{case_uuid}/retainer
+method: POST
+headers:
+
+content-type: application/json
+
+X-Kline-Doctor-Id: Optional. UUID of the doctor to assign as case owner. Must be a doctor within the
+caller's hierarchy. Defaults to the parent case's doctor.
+query string parameters: none
+
+body: All fields optional.
+
+             Key      Type                              Description           Required
+                     String     Doctor's instructions for the retainer.       No
+doctor_instructions  Integer    The impression type. See impression types.    No
+impression_type      Integer    The retainer type. See retainer types.        No
+retainer_type        Integer    Which arches to treat. See arches treatment.  No
+treat
+response: The created child case. case_id (integer node ID) plus all fields from Retrieve Case.
+ product_type will be 1 .
+
+sample request:
+
+  curl -X POST 'https://<your-domain>/api/v2/cases/3942be3c-26d6-4618-a7ee-8c8144aec31d/retaine
+      -H 'Content-Type: application/json' \
+      -H 'X-Kline-Api-Key: 1234567890123456789012345678901234567890123456789012345678901234' \
+      -H 'X-Kline-Api-User-UUID: 123e4567-e89b-12d3-a456-426614174000' \
+      -d '{
+          "retainer_type": 1,
+          "treat": 0
+      }'
+
+sample response:
+
+  {
+      "data": {
+          "case_id": 45,
+          "uuid": "d4e5f6a7-b8c9-0123-defa-234567890123",
+          "product_type": 1,
+          "case_status": "New",
+          "original_case": "3942be3c-26d6-4618-a7ee-8c8144aec31d",
+          "first_name": "John",
+          "last_name": "Doe",
+          "retainer_type": 1,
+          "treat": 0
+      }
+
+  }
+
+Create Whitening Tray Case
+
+Creates a whitening tray child case linked to the given parent. The parent must be in Shipped status. All
+fields are inherited from the parent case; only the fields listed below can be supplied in the request body.
+
+ product_type is always set to 4 (Whitening Tray).
+
+path: cases/{case_uuid}/whitening-tray
+
+method: POST
+
+headers:
+
+content-type: application/json
+X-Kline-Doctor-Id: Optional. UUID of the doctor to assign as case owner. Must be a doctor within the
+caller's hierarchy. Defaults to the parent case's doctor.
+
+query string parameters: none
+body: All fields optional.
+
+             Key      Type                            Description            Required
+                     String   Doctor's instructions for the whitening tray.  No
+doctor_instructions  Integer  The impression type. See impression types.     No
+impression_type      Integer  Which arches to treat. See arches treatment.   No
+treat
+
+response: The created child case. case_id (integer node ID) plus all fields from Retrieve Case.
+ product_type will be 4 .
+
+sample request:
+
+curl -X POST 'https://<your-domain>/api/v2/cases/3942be3c-26d6-4618-a7ee-8c8144aec31d/whiteni
+   -H 'Content-Type: application/json' \
+   -H 'X-Kline-Api-Key: 1234567890123456789012345678901234567890123456789012345678901234' \
+   -H 'X-Kline-Api-User-UUID: 123e4567-e89b-12d3-a456-426614174000' \
+   -d '{
+       "impression_type": 0,
+       "treat": 0
+   }'
+
+sample response:
+
+{
+   "data": {
+       "case_id": 46,
+       "uuid": "e5f6a7b8-c9d0-1234-efab-345678901234",
+       "product_type": 4,
+       "case_status": "New",
+       "original_case": "3942be3c-26d6-4618-a7ee-8c8144aec31d",
+       "first_name": "John",
+       "last_name": "Doe",
+       "impression_type": 0,
+       "treat": 0
+   }
+
+}
+Datetime Values
+
+Datetime values are represented as ISO 8601 strings. For example, the following are valid datetime values:
+
+        2020-01-01T00:00:00+01:00
+        2020-01-01T00:00:00.000Z
+
+To avoid ambiguity, when sending datetime values, always include the timezone offset. If the offset is not
+specified, it is assumed to be Z (UTC).
+
+Codes Used To Represent Values and Choices
+
+Arches Treatment
+
+                    Code                                 Value
+0
+1                                     Both arches
+2                                     Upper Arch
+                                      Lower Arch
+
+Case Status                                                                            Value
+                                                         Draft
+                                Code                     In Planning
+  New                                                    Waiting for Approval
+  InPlanning                                             Plan Rejected
+  PendingPlanReview                                      In Production
+  PlanRejected                                           Shipped
+  InProduction
+  Shipped
+
+Gender                                                   Value
+
+                   Code               Male
+  0                                   Female
+  1                                   Prefer not to say
+  2
+Impression Types                                           Value
+
+                 Code                 Intraoral Scan
+  0                                   Desktop Scan
+  1                                   Silicone Impression
+  2
+
+Lower/Upper Range                                                                        Value
+                                                           2-2
+                                Code                       3-3
+  0                                                        4-4
+  1                                                        N/A
+  2
+  3
+
+Maintain/Improve                                                  Value
+
+                           Code       Maintain
+  0                                   Improve
+  1
+
+Product Types
+
+           Code                                            Value
+0
+1                                Clear Aligners
+2                                Retainer
+4                                Refinements (Read Only)
+                                 Whitening Tray
+
+Refinement Cannot be used when creating a case. Returned when a refinement child case is created via
+the Create Refinement Case endpoint.
+Retainer Types
+
+        Code                                            Value
+0
+1                    MEMOTAIN (fixed lingual retainer)
+                     Removable plastic retainer
+
+Treatment Types                                         Value
+
+             Code    3-3 Social Smile
+  0                  5-5 Pre molar to pre molar
+  1                  7-7 Full Treatment
+  2                  As Recommended
+  3
+
+Treatment Plan Statuses                                             Value
+                                  Accepted
+                            Code  Enabled
+  accepted                        Read-only
+  enabled                         Rejected
+  read_only                       Pending
+  rejected                        Modification requested
+  pending                         Pending for patient approval
+  modification                    Pending consultation
+  pending_patient
+  pending_consultation
+
+Yes/No/Recommended
+
+               Code                                     Value
+0
+1                                 Yes
+2                                 No
+                                  As Recommended
+Webhooks
+
+Webhooks are used to notify your application when an event occurs in the K Line system. For example
+when a case is added or updated, or when a new doctor signed up. All webhook requests are POST
+requests. The body of the request is a JSON object with the event payload. Check Webhook Payload for
+the payload structure. The headers of the request are:
+
+        Content-Type: application/json
+
+       X-KLINE-SECRET-TOKEN : The optional secret token configured in the webhook.
+
+Managing Webhooks
+
+In the portal UI, click your avatar to show the user menu, click API Webhooks. This opens a dashboard
+where you can manage your webhooks.
+
+Create a Webhook
+
+Click the "Add Webhook" button. This opens a form where you can configure the webhook. The form has
+the following fields:
+
+Label: A label for the webhook. This is used to identify the webhook in the dashboard.
+
+URL: The URL where the webhook will be sent. This is the URL of your application. The URL must be
+accessible from the K Line system. The URL must be a valid https URL.
+
+Triggers: The triggers that will cause the webhook to be sent. You need to select at least one trigger.
+
+Enabled: Whether the webhook is enabled or not. If the webhook is disabled, it will not be triggered by its
+events. You can only have up to 5 enabled webhooks at the same time.
+
+Secret Token: An optional secret token that will be sent with the webhook. This is used to authenticate the
+webhook in your application. Even though it's optional, we strongly recommend that you make use of it for
+the added security it provides. The secret token must be a string of at least 16 characters. It is
+recommended to use a random string of characters. This token will be sent in the X-KLINE-SECRET-TOKEN
+header in the webhook request.
+
+Edit a Webhook
+
+In the dashboard listing your webhooks, there is a dropdown button next to each webhook. The default
+action is to edit the webhook. Click the button to open the form to edit the webhook.
+Delete a Webhook
+
+In the dashboard listing your webhooks, there is a dropdown button next to each webhook. Expand the
+dropdown and click the "Delete" button. This will delete the webhook.
+
+Testing Webhooks
+
+You can test your webhooks by sending a test request. In the dashboard listing your webhooks, there is a
+dropdown button next to each webhook. Expand the dropdown and click the "Test" button. This will send a
+test request to your webhook. The test request will be sent to the URL you configured in the webhook. The
+test results will be displayed in the dashboard with details of any errors if any.
+
+Webhook Payload
+
+The webhook payload is a JSON object with the following fields:
+
+ Key    Type           Values                                    Description
+       String
+event          insert | update   The event type.
+
+type   String  case |            The event entity type.
+               treatment_plan |
+               doctor | comment
+
+uuid   String                    The event entity uuid.
+
+data   Object                    The event entity fields. CheckRetrieve Case, List
+                                 Treatment Plans and Retrieve Case Doctor for the fields
+                                 sent for each entity type. \n The comment object will
+                                 contain author key with the comment author email or
+                                 simply kline , the case_id and case_uuid of the
+                                 case the comment is related to, and the comment body
+                                 under comments key.
+

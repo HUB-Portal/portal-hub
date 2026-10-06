@@ -1,0 +1,170 @@
+# Production stack for the Portal Hub on one Hetzner server (see deploy/hetzner/README.md).
+#
+#   caddy   public entry: ports 80 and 443, automatic HTTPS, security headers
+#   app     the API and the web app (no published port)
+#   worker  background jobs: file scanning and checks, email, webhooks, portal push, daily retention
+#   db      PostgreSQL 16
+#   clamav  malware scanner (clamd)
+#   migrate maintenance commands (profile "ops"): migrate, create-admin, rewrap, audit-verify ...
+#
+# Start:  docker compose -f deploy/docker-compose.prod.yml up -d
+# Ops:    docker compose -f deploy/docker-compose.prod.yml run --rm migrate node dist/cli.js migrate
+#
+# Secrets are read from env files OUTSIDE the repository: ${KPH_SECRETS_DIR}/app.env, owner.env, db.env and caddy.env (chmod 600).
+# Data lives under ${KPH_DATA_DIR} (put this on the encrypted volume). Create the folders with the owners shown in the guide.
+
+name: kph
+
+# Every container: read only file system, no added privileges, no Linux capabilities unless listed, size limited logs.
+x-hardened: &hardened
+  read_only: true
+  cap_drop: [ALL]
+  security_opt: ["no-new-privileges:true"]
+  restart: unless-stopped
+  logging:
+    driver: json-file
+    options: { max-size: "20m", max-file: "5" }
+
+x-app-image: &app
+  <<: *hardened
+  image: ${KPH_IMAGE:-kph:latest}
+  user: "1000:1000"
+  env_file: ${KPH_SECRETS_DIR:-/srv/kph/secrets}/app.env
+  tmpfs:
+    - /tmp:size=64m,mode=1777,noexec,nosuid
+  networks: [backend, edge]
+
+services:
+  caddy:
+    <<: *hardened
+    image: caddy:2-alpine
+    user: "1000:1000"
+    env_file: ${KPH_SECRETS_DIR:-/srv/kph/secrets}/caddy.env
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    # Ports below 1024 without root: the sysctl lets any user bind them. The caddy binary carries the file capability
+    # net_bind_service, and the kernel only runs it when that capability is in the container's bounding set, hence cap_add.
+    cap_add: [NET_BIND_SERVICE]
+    sysctls:
+      net.ipv4.ip_unprivileged_port_start: 0
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - ${KPH_DATA_DIR:-/srv/kph/data}/caddy/data:/data
+      - ${KPH_DATA_DIR:-/srv/kph/data}/caddy/config:/config
+    tmpfs:
+      - /tmp:size=16m,mode=1777,noexec,nosuid
+    networks:
+      edge:
+        ipv4_address: 172.29.10.2
+    depends_on:
+      app:
+        condition: service_healthy
+
+  app:
+    <<: *app
+    command: ["node", "dist/index.js"]
+    volumes:
+      - ${KPH_DATA_DIR:-/srv/kph/data}/storage:/data/files
+    depends_on:
+      db:
+        condition: service_healthy
+      clamav:
+        condition: service_started
+    # The image defines the health check (GET /api/health, which also checks the database).
+
+  worker:
+    <<: *app
+    command: ["node", "dist/worker.js"]
+    volumes:
+      - ${KPH_DATA_DIR:-/srv/kph/data}/storage:/data/files
+    depends_on:
+      db:
+        condition: service_healthy
+      clamav:
+        condition: service_started
+    healthcheck:
+      test: ["CMD-SHELL", "pgrep -f 'dist/worker.js' > /dev/null || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+  # Maintenance commands. Not started by "up". It has the owner database login (owner.env) and the same storage.
+  migrate:
+    <<: *app
+    profiles: ["ops"]
+    restart: "no"
+    env_file:
+      - ${KPH_SECRETS_DIR:-/srv/kph/secrets}/app.env
+      - ${KPH_SECRETS_DIR:-/srv/kph/secrets}/owner.env
+    command: ["node", "dist/cli.js", "migrate"]
+    healthcheck:
+      disable: true
+    volumes:
+      - ${KPH_DATA_DIR:-/srv/kph/data}/storage:/data/files
+    depends_on:
+      db:
+        condition: service_healthy
+
+  db:
+    <<: *hardened
+    image: postgres:16-alpine
+    # The postgres user of the alpine image. The data folder must belong to it (chown 70:70, mode 700).
+    user: "70:70"
+    env_file: ${KPH_SECRETS_DIR:-/srv/kph/secrets}/db.env
+    environment:
+      POSTGRES_INITDB_ARGS: "--data-checksums --auth-host=scram-sha-256 --auth-local=scram-sha-256"
+    command:
+      - postgres
+      - -c
+      - password_encryption=scram-sha-256
+      - -c
+      - log_min_duration_statement=-1
+      - -c
+      - log_statement=none
+      - -c
+      - shared_buffers=512MB
+      - -c
+      - max_connections=60
+    volumes:
+      - ${KPH_DATA_DIR:-/srv/kph/data}/db:/var/lib/postgresql/data
+    tmpfs:
+      - /tmp:size=64m,mode=1777,noexec,nosuid
+      - /run/postgresql:size=4m,uid=70,gid=70,mode=2775
+    networks: [backend]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U \"$$POSTGRES_USER\" -d \"$$POSTGRES_DB\""]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+    shm_size: 256m
+
+  clamav:
+    <<: *hardened
+    image: clamav/clamav:stable
+    # The image starts as root to hand its signature folder to the clamav user, then runs clamd and freshclam as clamav.
+    # It gets only the four capabilities that needs. It is also on the edge network, only so freshclam can download signatures.
+    cap_add: [CHOWN, SETUID, SETGID, DAC_OVERRIDE]
+    volumes:
+      - ./clamd.conf:/etc/clamav/clamd.conf:ro
+      - ${KPH_DATA_DIR:-/srv/kph/data}/clamav:/var/lib/clamav
+    tmpfs:
+      - /tmp:size=1g,mode=1777
+      - /var/lock
+      - /run/clamav:uid=100,gid=101,mode=775
+      - /var/log/clamav:uid=100,gid=101,mode=755
+    networks: [backend, edge]
+
+networks:
+  # No route to the internet: the database and the scanner cannot be reached from outside and cannot call out.
+  backend:
+    internal: true
+  # Caddy, the app and the worker (email, portal, webhooks, object storage and Google sign in need to go out).
+  edge:
+    ipam:
+      config:
+        # Caddy has a fixed address (172.29.10.2, which the app trusts as its proxy). Other containers get addresses from the upper half only.
+        - subnet: 172.29.10.0/24
+          ip_range: 172.29.10.128/25

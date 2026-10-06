@@ -1,0 +1,73 @@
+# Portal Hub: files that must never be committed.
+# Check what would be added before the first commit with: git add -n .
+
+# ---- dependencies and build output
+node_modules/
+dist/
+build/
+out/
+.vite/
+*.tsbuildinfo
+coverage/
+.nyc_output/
+
+# ---- secrets and local environment (example files stay tracked)
+.env
+.env.*
+!.env.example
+*.env
+!*.env.example
+server/.env
+deploy/.env
+
+# ---- local data, uploads and logs
+server/data/
+*.log
+hub.log
+npm-debug.log*
+
+# ---- private keys and certificates
+*.pem
+*.key
+*.p12
+*.pfx
+id_rsa*
+id_ed25519*
+
+# ---- backups and database dumps
+*.dump
+*.sql.gz
+*.age
+*.bak
+*.backup
+
+# ---- real case files and patient data: never commit these.
+# Demo files are generated in code, so no fixture of these types is needed in the repository.
+/real-samples/
+*.zip
+*.7z
+*.rar
+*.stl
+*.pts
+*.dcm
+
+# ---- editor, OS and local tool files
+.DS_Store
+Thumbs.db
+desktop.ini
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json
+.idea/
+*.swp
+*.swo
+*~
+.claude/settings.local.json
+
+# ---- temporary and scratch files
+tmp/
+temp/
+scratch/
+*.tmp
+*.orig
+*.rej

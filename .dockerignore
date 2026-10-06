@@ -1,0 +1,21 @@
+# Keep the build context small and keep secrets and local data out of every image layer.
+**/node_modules
+**/dist
+**/.env
+**/.env.*
+!**/.env.example
+server/data
+*.log
+hub.log
+.git
+.gitignore
+.claude
+.vscode
+docs
+deploy
+**/*.md
+server/test
+server/scripts
+web/public/*.map
+Dockerfile
+.dockerignore

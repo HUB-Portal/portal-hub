@@ -1,0 +1,126 @@
+name: checks
+
+# Runs on every pull request and on every push to main.
+# NOTE: third party actions are pinned to major versions for now. Pin them to full commit SHAs
+# (and let Dependabot keep the SHAs current) before the repository holds production deployments.
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  checks:
+    name: Type check, tests, build, audit
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    services:
+      # Same credentials and host port as the development database (deploy/docker-compose.dev.yml and
+      # server/scripts/init-dev.mjs). The tests create and drop their own database, kph_test, on it.
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: kph_owner
+          POSTGRES_PASSWORD: kph_owner_dev_password
+          POSTGRES_DB: kph
+        ports:
+          - 5433:5432
+        # GitHub waits for this health check to pass before the first step runs.
+        options: >-
+          --health-cmd "pg_isready -U kph_owner -d kph"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      # Writes server/.env with fresh random development keys and a random password for the kph_app role.
+      # The tests do not need this file (they set their own environment and fall back to a fixed test password
+      # for the app role), but running it keeps the script itself under test and mirrors the documented setup.
+      - name: Generate development environment
+        run: npm run init-dev -w server
+
+      - name: Type check
+        run: npm run typecheck
+
+      - name: Tests
+        run: npm run test -w server
+
+      - name: Build
+        run: npm run build
+
+      - name: Dependency audit (high and critical)
+        run: npm audit --audit-level=high
+
+  docker:
+    name: Docker image
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Build the image (not pushed)
+        run: docker buildx build --load --tag kph:ci .
+
+      # The API must refuse to start with unsafe production settings and say why.
+      - name: Image refuses unsafe production settings
+        run: |
+          key="$(openssl rand -base64 32)"
+          set +e
+          output="$(docker run --rm \
+            -e NODE_ENV=production \
+            -e PUBLIC_URL=http://x \
+            -e DATABASE_URL=postgres://kph_app:ci_only_password_0123456789@db:5432/kph \
+            -e "MASTER_KEYS={\"k1\":\"${key}\",\"b1\":\"${key}\"}" \
+            -e ACTIVE_KEY_ID=k1 \
+            -e BLIND_INDEX_KEY_ID=b1 \
+            kph:ci 2>&1)"
+          status=$?
+          set -e
+          echo "$output"
+          if [ "$status" -eq 0 ]; then
+            echo "The image started with an unsafe production configuration" >&2
+            exit 1
+          fi
+          if ! printf '%s' "$output" | grep -q "PUBLIC_URL must be https in production"; then
+            echo "The image failed, but not with the expected PUBLIC_URL message" >&2
+            exit 1
+          fi
+
+  secret-scan:
+    name: Secret scan
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      # Scans the whole git history with the rules in .gitleaks.toml.
+      # The safe.directory settings let git read the mounted checkout inside the container.
+      - name: Gitleaks
+        run: |
+          docker run --rm \
+            -v "${{ github.workspace }}:/repo" \
+            -e GIT_CONFIG_COUNT=1 \
+            -e GIT_CONFIG_KEY_0=safe.directory \
+            -e GIT_CONFIG_VALUE_0=/repo \
+            ghcr.io/gitleaks/gitleaks:v8.30.1 \
+            git /repo --config /repo/.gitleaks.toml --redact --verbose --no-banner

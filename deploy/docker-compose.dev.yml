@@ -1,0 +1,15 @@
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: kph_owner
+      POSTGRES_PASSWORD: kph_owner_dev_password
+      POSTGRES_DB: kph
+    ports: ["5433:5432"]
+    volumes: ["kph_pg:/var/lib/postgresql/data"]
+  clamav:
+    image: clamav/clamav:stable
+    ports: ["3310:3310"]
+    profiles: ["scan"]
+volumes:
+  kph_pg:

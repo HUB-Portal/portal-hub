@@ -1,0 +1,19 @@
+{
+  "name": "kline-partner-hub",
+  "private": true,
+  "version": "0.1.0",
+  "workspaces": ["server", "web"],
+  "engines": { "node": ">=22" },
+  "scripts": {
+    "db:up": "docker compose -f deploy/docker-compose.dev.yml up -d",
+    "db:down": "docker compose -f deploy/docker-compose.dev.yml down",
+    "migrate": "npm run -w server migrate",
+    "seed": "npm run -w server seed",
+    "dev": "npm run -w server dev",
+    "dev:web": "npm run -w web dev",
+    "build": "npm run -w web build && npm run -w server build",
+    "start": "npm run -w server start",
+    "typecheck": "npm run -w server typecheck && npm run -w web typecheck",
+    "test": "npm run -w server test"
+  }
+}
