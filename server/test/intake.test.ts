@@ -279,11 +279,11 @@ describe('upload, checks and submit', () => {
 
   it('does not let errors or warnings stop a submission', async () => {
     const c = await newCase(up);
-    // an empty case has the error no_stl
-    expect((await up.call('GET', `/api/cases/${c.id}`)).json.case.checks.errors.map((e: any) => e.code)).toContain('no_stl');
+    // an empty case has the error no_stl (the checks are computed on submit), and it is still submitted
     const sub = await up.call('POST', `/api/cases/${c.id}/submit`, {});
     expect(sub.status, JSON.stringify(sub.json)).toBe(200);
     expect(sub.json.case.status).toMatch(/^(ready|submitted)$/);
+    expect(sub.json.case.checks.errors.map((e: any) => e.code)).toContain('no_stl');
   });
 
   it('submits a case with warnings without asking, stores the acknowledgement, routes to the default site and sets the due date', async () => {
