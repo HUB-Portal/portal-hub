@@ -228,15 +228,12 @@ export type SubmitOutcome =
   | { outcome: 'locked' }
   | { outcome: 'failed'; reason: string };
 
-/** Submit a case only when its checks are clean (or its warnings are acknowledged). */
-export async function submitWhenClean(caseUuid: string, acknowledgeWarnings: boolean, signal?: AbortSignal): Promise<SubmitOutcome> {
+/** Submit a case. The checks (errors and warnings) are shown to the partner but do not hold a submission back. */
+export async function submitCase(caseUuid: string, signal?: AbortSignal): Promise<SubmitOutcome> {
   try {
     const detail = await api<{ case: CaseItem }>(`/api/cases/${caseUuid}`, { signal });
-    const c = detail.case;
-    if (c.checks.errors.length) return { outcome: 'needs_review', reason: 'Some checks found errors.' };
-    if (c.checks.warnings.length && !acknowledgeWarnings) return { outcome: 'needs_review', reason: 'Some checks found warnings to confirm.' };
     const res = await api<{ case?: CaseItem; status?: string }>(`/api/cases/${caseUuid}/submit`, {
-      method: 'POST', body: { acknowledgeWarnings: acknowledgeWarnings && c.checks.warnings.length > 0 }, signal,
+      method: 'POST', body: { acknowledgeWarnings: detail.case.checks.warnings.length > 0 }, signal,
     });
     return { outcome: 'submitted', status: res?.case?.status ?? res?.status ?? 'submitted' };
   } catch (e) {
@@ -244,8 +241,7 @@ export async function submitWhenClean(caseUuid: string, acknowledgeWarnings: boo
     if (e instanceof ApiError) {
       if (e.code === 'org_not_approved') return { outcome: 'locked' };
       if (e.code === 'case_address_required') return { outcome: 'needs_review', reason: CASE_ADDRESS_REQUIRED_TEXT };
-      if (e.code === 'checks_failed') return { outcome: 'needs_review', reason: 'Some checks found errors.' };
-      if (e.code === 'warnings_need_confirmation') return { outcome: 'needs_review', reason: 'Some checks found warnings to confirm.' };
+      if (e.code === 'checks_failed') return { outcome: 'needs_review', reason: 'Some files are still being uploaded or checked. Open the case and submit it when they are done.' };
       return { outcome: 'failed', reason: e.message };
     }
     return { outcome: 'failed', reason: 'The case could not be submitted.' };

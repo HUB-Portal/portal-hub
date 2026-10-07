@@ -50,9 +50,9 @@ export interface Onboarding { items: OnboardingItem[]; approved: boolean }
 /** Where each checklist item is worked on, and what to tell people when it is not in their hands. */
 export const ONBOARDING_HELP: Record<string, { to?: string; hint: string }> = {
   account_secured: { to: '/portal/account', hint: 'Set up your authenticator app so only you can sign in.' },
-  profile: { to: '/portal/company', hint: 'Add your legal name, VAT ID if you have one, your address and at least one contact.' },
+  profile: { to: '/portal/company', hint: 'Add your legal name, VAT ID if you have one, your address and an operations contact.' },
   logo: { to: '/portal/company#logo', hint: 'Add your company logo so your team and K Line can recognise your account.' },
-  case_address: { to: '/portal/company#case-address', hint: 'Tell K Line where to send your cases back to. People can also add an address of their own in Account.' },
+  case_address: { to: '/portal/company#case-address', hint: 'Tell K Line where to send your cases back to. One address is used for the whole company and an administrator keeps it.' },
   spec: { to: '/portal/spec', hint: 'Read the production specification and propose changes if you need them.' },
   dpa: { hint: 'K Line records the data processing agreement with you. Uploads stay locked until it is done.' },
   approval: { hint: 'K Line checks your details and approves your company. This usually takes one working day.' },
@@ -61,9 +61,9 @@ export const ONBOARDING_HELP: Record<string, { to?: string; hint: string }> = {
 // ---- company profile ----------------------------------------------------------------------------------------------
 
 export interface Contact { name: string; email: string; phone: string }
-export const CONTACT_KEYS = ['operations', 'quality', 'finance', 'it'] as const;
+export const CONTACT_KEYS = ['operations'] as const;
 export type ContactKey = (typeof CONTACT_KEYS)[number];
-export const CONTACT_LABEL: Record<ContactKey, string> = { operations: 'Operations', quality: 'Quality', finance: 'Finance', it: 'IT' };
+export const CONTACT_LABEL: Record<ContactKey, string> = { operations: 'Operations' };
 
 export interface Address { street: string; city: string; postalCode: string; country: string }
 
@@ -105,7 +105,7 @@ export function normalizeProfile(raw: any): Profile {
     country: str(r.country),
     vatId: str(r.vatId),
     address: { street: str(a.street), city: str(a.city), postalCode: str(a.postalCode), country: str(a.country) },
-    contacts: { operations: contactOf(c.operations), quality: contactOf(c.quality), finance: contactOf(c.finance), it: contactOf(c.it) },
+    contacts: { operations: contactOf(c.operations) },
     settings: { caseIdRegex: str(s.caseIdRegex), requirePts: !!s.requirePts },
     hasLogo: typeof r.logo?.hasLogo === 'boolean' ? r.logo.hasLogo : typeof r.hasLogo === 'boolean' ? r.hasLogo : undefined,
     logoRequired: r.logoRequired !== false,
@@ -139,34 +139,6 @@ export function profileBody(p: Profile): Record<string, unknown> {
 /** The company profile, shared by the pages that need it. */
 export function useProfile(enabled = true) {
   return useQuery({ queryKey: ['org-profile'], enabled, queryFn: async () => normalizeProfile(await api('/api/org/profile')) });
-}
-
-/**
- * The signed in person's own case address, the company default and which one a case sent by this person uses.
- * 'own' = their own complete address, 'company' = the company address, 'none' = neither is complete (direct manufacturing is blocked).
- */
-export interface UserCaseAddress {
-  own: CaseAddress | null;
-  ownComplete: boolean;
-  company: CaseAddress | null;
-  companyComplete: boolean;
-  effective: 'own' | 'company' | 'none';
-}
-
-export function normalizeUserCaseAddress(raw: any): UserCaseAddress {
-  const own = readCaseAddress(raw?.own);
-  const company = readCaseAddress(raw?.company);
-  const ownComplete = typeof raw?.ownComplete === 'boolean' ? raw.ownComplete : isCompleteCaseAddress(own);
-  const companyComplete = typeof raw?.companyComplete === 'boolean' ? raw.companyComplete : isCompleteCaseAddress(company);
-  const effective = raw?.effective === 'own' || raw?.effective === 'company' || raw?.effective === 'none' ? raw.effective : ownComplete ? 'own' : companyComplete ? 'company' : 'none';
-  return { own, ownComplete, company, companyComplete, effective };
-}
-
-/** Query key shared by the Account card, the Direct manufacturing page and the overview. Invalidate it after any address change. */
-export const USER_CASE_ADDRESS_KEY = ['case-address'] as const;
-
-export function useUserCaseAddress(enabled = true) {
-  return useQuery({ queryKey: USER_CASE_ADDRESS_KEY, enabled, retry: false, queryFn: async () => normalizeUserCaseAddress(await api('/api/account/case-address')) });
 }
 
 /** The logo of the signed in company. Shared by the top bar, the banner and the checklist. */

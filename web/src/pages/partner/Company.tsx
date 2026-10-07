@@ -11,7 +11,7 @@ import { formatBytes, formatDate, formatNumber } from '../../lib/format';
 import { LOGO_RULES, checkLogoFile, type LogoCheck } from '../../lib/logoCheck';
 import {
   CONTACT_KEYS, CONTACT_LABEL, DOCUMENT_KINDS, agreementLabel, documentKindLabel, isNotApproved, normalizeAgreements, normalizeBrands, normalizeDocuments,
-  normalizeProfile, normalizeSites, profileBody, useOrgLogo, USER_CASE_ADDRESS_KEY, type Brand, type OrgDocument, type Profile,
+  normalizeProfile, normalizeSites, profileBody, useOrgLogo, type Brand, type OrgDocument, type Profile,
 } from '../../lib/orgApi';
 import { COUNTRIES, countryName } from '../../lib/signup';
 import { blobSource } from '../../lib/source';
@@ -184,7 +184,7 @@ function ContactsCard({ profile, canEdit }: { profile: Profile; canEdit: boolean
   return (
     <Card title="Contacts" >
       <form onSubmit={submit} className="stack">
-        <p className="muted">Tell us who to talk to about each topic. Add at least one contact.</p>
+        <p className="muted">Tell us who to talk to at your company. Add an operations contact.</p>
         <Feedback msg={msg} />
         <fieldset className="plain-fieldset stack-lg" disabled={!canEdit}>
           {CONTACT_KEYS.map((k) => (
@@ -338,10 +338,9 @@ function CaseAddressCard({ profile, canEdit }: { profile: Profile; canEdit: bool
   const save = useMutation({
     mutationFn: (a: CaseAddress) => api('/api/org/profile', { method: 'PUT', body: { caseAddress: caseAddressBody(a) } }),
     onSuccess: () => {
-      setMsg({ tone: 'good', text: 'Your case address is saved.' });
+      setMsg({ tone: 'good', text: 'The company case address is saved.' });
       qc.invalidateQueries({ queryKey: ['org-profile'] });
       qc.invalidateQueries({ queryKey: ['onboarding'] });
-      qc.invalidateQueries({ queryKey: USER_CASE_ADDRESS_KEY });
     },
     onError: (e) => {
       const fields = e instanceof ApiError && Array.isArray(e.extra.fields) ? (e.extra.fields as { path: string; message: string }[]) : [];
@@ -366,7 +365,7 @@ function CaseAddressCard({ profile, canEdit }: { profile: Profile; canEdit: bool
     <Card title="Company case address" actions={complete === undefined ? undefined : <Badge tone={complete ? 'good' : 'warn'}>{complete ? 'Complete' : 'Needed'}</Badge>}>
       <form ref={form} onSubmit={submit} className="stack" noValidate>
         <p className="muted">{CASE_ADDRESS_INTRO} It goes on the label of every case you send with Direct manufacturing, so the carrier knows who receives it. A case that has already been sent keeps the address it was sent with.</p>
-        <p className="muted">This is the default for your company. It is used when a person has no case address of their own. Everyone can add their own in <Link to="/portal/account#case-address">Account</Link>.</p>
+        <p className="muted">This is the one case address for everyone in your company. Only administrators can change it.</p>
         {complete === false ? (
           <Notice tone="warn" title="Add your case address">
             Direct manufacturing stays blocked until you save a complete case address.{!profile.caseAddress ? ' We started with your company address. Check it, add the missing details and save.' : ''}

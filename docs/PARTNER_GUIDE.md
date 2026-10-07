@@ -83,9 +83,9 @@ If you never confirm your email address, the registration is deleted after 7 day
 Until K Line approves your company, you can sign in, fill in your company profile, add logos and documents, read and propose the production specification and use your account. These are locked until approval: sending case files, material shipments, team invites, API keys and webhooks. The **Overview** shows a getting started list:
 
 1. Secure your account (an administrator has an authenticator app).
-2. Complete your company profile (legal name, VAT ID for EU countries, address, at least one contact).
+2. Complete your company profile (legal name, VAT ID for EU countries, address, an operations contact).
 3. Add your company logo. It is required: K Line cannot approve a company without one. Any team member except a viewer can add it.
-4. Add your case address (the company address is filled in at registration, check it is right; every person can also add their own in **Account**).
+4. Add your case address (the company address is filled in at registration, check it is right). There is one case address for the whole company and only administrators can change it.
 5. Agree a production specification (one is proposed or active).
 6. Data processing agreement on file (K Line records it).
 7. Approval by K Line.
@@ -122,10 +122,10 @@ You need these details for every case:
 3. On the review screen, check every row. The Hub shows the patient ID, first name and last name it found. Names in different orders are common, so use **Swap names** when they are the wrong way round. A folder name with a comma, such as `Alonso, Marc`, is read as last name first. Three or more words are split as first name then the rest, and the row is marked for review. A copy ending such as `(2)` is removed.
 4. A case is blocked until the patient ID, first name and last name are all there. The patient ID must not have been used for another direct case, and names can be at most 50 characters. You can change the patient ID (letters, digits, spaces and `_ . / # -`) and the names in the row.
 5. Open a row to check its files. Each STL (3D model) and PTS (trim line) needs an arch (upper or lower) and a step. Fix any that the Hub could not read. You can switch a file off. Instructions are read from a text or Word file (`.txt`, `.md`, `.rtf`, `.docx`) in the folder, and you can edit them. At most 8,000 characters. Old `.doc` files are not read.
-6. Set the brand and priority (normal or rush), then start. The Hub creates the cases, uploads the files and checks them. Keep the page open. If the connection drops, it carries on where it stopped. With the automatic option it submits the clean cases. Cases with problems stay drafts for your review.
+6. Set the brand and priority (normal or rush), then start. The Hub creates the cases, uploads the files and checks them. Keep the page open. If the connection drops, it carries on where it stopped. With the automatic option it submits every case once its files are uploaded, whatever the checks found. Only a case with a file that did not finish uploading stays a draft for your review.
 7. Watch **Batch result** for each case. The Hub then sends each submitted case to the K Line customer portal. If that fails you see an error with a **Retry** action. If the portal connection is not set up (**Portal connection**, for administrators) the push fails with a clear message.
 
-Every direct manufacturing case is sent with a **case address**. It is the address of the person who sent the case (their own, see **Account**, **Case address**) when that person has saved one, and otherwise your company's address (see **Company profile**). If neither is complete, the Hub tells you before you upload anything ("Add your case address in the company profile, then press Try again."). The K Line portal does not allow the address of a submitted direct case to be changed, so changing an address later does not change cases that were already sent.
+Every direct manufacturing case is sent with a **case address**. It is always your company's address (see **Company profile**), the same for everyone in the company. If it is missing or incomplete, the Hub tells you before you upload anything ("Add your case address in the company profile, then press Try again."). The K Line portal does not allow the address of a submitted direct case to be changed, so changing an address later does not change cases that were already sent.
 
 Direct manufacturing needs the **Portal connection** (administrators): the portal address, API key and user ID that K Line gave you. Saving asks for your authenticator code. Use **Test connection** to check it.
 
@@ -161,9 +161,9 @@ Allowed file types for cases: `stl`, `pts`, `pdf`, `csv`, `svg`, `txt`, `xml`, `
 
 The Hub scans every file for malware and checks its content. Results come in two kinds.
 
-**Errors stop you from submitting.** Examples: there is no STL at all; a model or trim line has no arch or step; two files are for the same aligner; a file failed a check (for example malware, a PDF that contains scripts, a file that is not a valid STL); files are still uploading or being checked.
+**Errors are shown, but they do not stop you from submitting.** Examples: there is no STL at all; a model or trim line has no arch or step; two files are for the same aligner; a file failed a check (for example malware, a PDF that contains scripts, a file that is not a valid STL); files are still uploading or being checked. Only that last one holds a submission back, until the files are done.
 
-**Warnings need your clear yes.** You read them and confirm ("I have read the warnings and want to submit anyway"). The confirmation is stored with the case. Examples:
+**Warnings are shown too and never stop a submission.** Examples:
 
 * A trim line is missing for an aligner (only if your company asked for a trim line for every aligner).
 * A trim line has no matching model, or is not on its model.
@@ -172,8 +172,6 @@ The Hub scans every file for malware and checks its content. Results come in two
 * A trim line is not closed, has a break, has very few points or fewer points than it says.
 * A CSV file has cells that could run as a spreadsheet formula, or is not UTF-8 text.
 * A PDF contains embedded files or is password protected.
-
-The 3D viewer on the case page shows each model with its trim line. Open trim lines are drawn in red.
 
 ## Case status: the four step progress bar
 
@@ -227,17 +225,11 @@ Administrators open **Team** to invite people, change roles, disable or re-enabl
 
 ## Company profile
 
-Open **Company profile** to keep your legal name, VAT ID, address, **case address**, **company logo**, contacts for operations, quality, finance and IT, brand logos, brands, documents (quality criteria, packaging and others) and your **case ID pattern** up to date. The pattern (optional) teaches the Hub how your case IDs look. There is a box to try it. You can also ask the Hub to require a trim line for every aligner. You can see the agreements K Line has recorded with you and the K Line sites your cases may go to. After approval the country cannot be changed here, because it decides where your cases may be produced. Ask K Line if it must change.
+Open **Company profile** to keep your legal name, VAT ID, address, **case address**, **company logo**, the operations contact, brand logos, brands, documents (quality criteria, packaging and others) and your **case ID pattern** up to date. The pattern (optional) teaches the Hub how your case IDs look. There is a box to try it. You can also ask the Hub to require a trim line for every aligner. You can see the agreements K Line has recorded with you and the K Line sites your cases may go to. After approval the country cannot be changed here, because it decides where your cases may be produced. Ask K Line if it must change.
 
 ### Case address
 
-The case address is the shipping address K Line keeps on every direct manufacturing case. It has nine fields, all required: company name, recipient name, street, postal code (at most 10 characters), city, state or province (at most 64, write `N/A` if your country has none), country, phone number (at most 15 characters, digits, spaces and `+ - ( )`) and email address. Administrators can change it. Everyone else can read it. It is the **company address**: the default used when a person has no case address of their own.
-
-### Your own case address
-
-Every person in your company, whatever their role, can have their own case address. Open **Account** and find the **Case address** card. It shows which address your cases will use: **Your own address** or **Your company's address**. To set your own, check the form (it starts from the company address, with your name and email address as the recipient, so change only what differs) and press **Save my case address**. All nine fields are required. To go back to the company address, press **Use the company address instead** and confirm.
-
-The address used for a direct manufacturing case is the one of the person who **created** the case (who uploaded the folder), not of the person who presses submit. If that person has no complete address of their own, the company address is used. Cases created through the partner API use the company address. Cases that were already sent keep the address they were sent with, so changing your address only affects cases you create or send from then on. You only ever see your own address and the company one, never a colleague's.
+The case address is the shipping address K Line keeps on every direct manufacturing case. It has nine fields, all required: company name, recipient name, street, postal code (at most 10 characters), city, state or province (at most 64, write `N/A` if your country has none), country, phone number (at most 15 characters, digits, spaces and `+ - ( )`) and email address. Administrators decide it and can change it. Everyone else can read it. It is the **company address**, used for every direct manufacturing case of every person in the company.
 
 ### Company logo (required)
 

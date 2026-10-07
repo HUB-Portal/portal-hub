@@ -12,8 +12,7 @@ import { registerJob, type JobRow } from '../jobs';
 import { refreshBatch } from './cases';
 import { FILE_COLUMNS, fileContentStream, fileName } from './files';
 import { canonicalNames, csvCell, zipStream, type ZipEntry } from './packaging';
-import { CASE_ADDRESS_REQUIRED_MESSAGE } from '../../../shared/caseAddress';
-import { pickCaseAddress } from './userCaseAddress';
+import { CASE_ADDRESS_REQUIRED_MESSAGE, isCompleteCaseAddress, type CaseAddress } from '../../../shared/caseAddress';
 import { PortalError, getPortalClient, isDemoPortal, portalSettings, type PortalClient } from './portal';
 
 interface PushProgress {
@@ -70,8 +69,7 @@ export async function bulkPushJob(job: Pick<JobRow, 'payload' | 'attempts' | 'ma
   const loaded = await tx(SYSTEM, async (c) => {
     const row = await one<any>(
       c,
-      `SELECT c.*, o.settings AS org_settings,
-              (SELECT u.case_address FROM users u WHERE u.id = c.created_by AND u.org_id = c.org_id) AS sender_address
+      `SELECT c.*, o.settings AS org_settings
          FROM cases c JOIN organizations o ON o.id = c.org_id WHERE c.id = $1 FOR UPDATE OF c`,
       [caseId],
     );
@@ -93,9 +91,9 @@ export async function bulkPushJob(job: Pick<JobRow, 'payload' | 'attempts' | 'ma
   let tmpFile: string | undefined;
   try {
     // The portal keeps a shipping address on every case. Without a complete one nothing is created: the partner adds it and presses Try again.
-    // The address is the sender's own (the user who created the case, never the worker) when it is complete, otherwise the company default.
-    // It is resolved now, when the address step runs. A case that already has its address keeps what it was sent with.
-    const chosen = pickCaseAddress(row.sender_address, row.org_settings?.case_address);
+    // The address is the company case address, kept by the company administrators. It is read now, when the address step runs.
+    // A case that already has its address keeps what it was sent with.
+    const chosen = isCompleteCaseAddress(row.org_settings?.case_address) ? (row.org_settings.case_address as CaseAddress) : null;
     if (!progress.address && !chosen) throw new PushRefused(CASE_ADDRESS_REQUIRED_MESSAGE, 'case_address_required');
     client = getPortalClient({ id: row.org_id, settings: row.org_settings ?? {} });
     const demo = isDemoPortal(client);
@@ -121,10 +119,9 @@ export async function bulkPushJob(job: Pick<JobRow, 'payload' | 'attempts' | 'ma
     // Order: create the case, set its shipping address, upload the files, submit. The portal refuses address changes once a direct case is submitted.
     if (!progress.address) {
       await recordProgress(caseId, { step: 2 });
-      await client.setShippingAddress(uuid, chosen!.address);
+      await client.setShippingAddress(uuid, chosen!);
       progress.address = true;
-      // Only where the address came from is kept ('own' or 'company'), never its values.
-      await recordProgress(caseId, { uploads: progress, addressSource: chosen!.source });
+      await recordProgress(caseId, { uploads: progress });
     }
 
     const timings: Record<string, number> = {};

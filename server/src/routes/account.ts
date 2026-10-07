@@ -5,7 +5,6 @@ import { dbCtx, getAuth, guard } from '../auth/context';
 import { one, tx } from '../db';
 import { notFound } from '../http/errors';
 import { parse, userAgent } from '../http/util';
-import { clearUserCaseAddress, getUserCaseAddress, setUserCaseAddress } from '../services/userCaseAddress';
 
 /** Personal preferences of the signed in person. */
 export async function accountRoutes(app: FastifyInstance): Promise<void> {
@@ -32,10 +31,4 @@ export async function accountRoutes(app: FastifyInstance): Promise<void> {
       return { email: body.email };
     });
   });
-
-  // The signed in person's own Case address (the nine K Line portal shipping fields). Every partner role may keep one, whatever its permissions.
-  // It is used for direct manufacturing cases this person sends, otherwise the company address (company profile) applies. K Line staff and API keys get 403.
-  app.get('/api/account/case-address', g, async (req) => getUserCaseAddress(getAuth(req)));
-  app.put('/api/account/case-address', g, async (req) => setUserCaseAddress(getAuth(req), req, req.body));
-  app.delete('/api/account/case-address', g, async (req) => clearUserCaseAddress(getAuth(req), req));
 }

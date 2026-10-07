@@ -589,13 +589,13 @@ export async function submitCase(ctx: DbCtx, a: AuthContext, id: string, opts: {
     if (!up.unlocked) throw forbidden('Your organisation must be approved with a data processing agreement on file before cases can be submitted.', 'org_not_approved');
 
     // Early gate for direct manufacturing cases: the case address is sent to the portal, so a missing one is reported now.
-    if (row.manufacturing_mode === 'direct') await assertCaseAddress(c, row.org_id, row.created_by ?? null);
+    if (row.manufacturing_mode === 'direct') await assertCaseAddress(c, row.org_id);
 
+    // The case checks (errors and warnings) are shown to the partner but never stop a submission. Only a file that is still being
+    // uploaded or checked holds it back, because its result is not known yet.
     const checks = await recomputeCase(c, id);
-    if (checks && checks.errors.length) throw new AppError(409, 'checks_failed', 'Fix the problems with this case before submitting it.', { errors: checks.errors });
-    if (checks && checks.warnings.length && !opts.acknowledgeWarnings) {
-      throw new AppError(409, 'warnings_need_confirmation', 'There are warnings. Please read and confirm them to continue.', { warnings: checks.warnings });
-    }
+    const unfinished = checks?.errors.filter((e) => e.code === 'files_incomplete' || e.code === 'files_processing') ?? [];
+    if (unfinished.length) throw new AppError(409, 'checks_failed', 'Wait until all files are uploaded and checked, then submit the case.', { errors: unfinished });
 
     const { manual, site, slaDays } = await resolveRouting(c, row.org_id, true, { direct: row.manufacturing_mode === 'direct' });
 

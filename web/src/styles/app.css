@@ -236,10 +236,6 @@ input[aria-invalid='true'] { border-color: var(--bad); }
 .case-row .case-body { padding: 14px; display: grid; gap: 14px; }
 .case-sum { display: flex; gap: 10px 16px; align-items: center; flex-wrap: wrap; }
 .case-sum .id { font-weight: 650; }
-.viewer { position: relative; width: 100%; height: 420px; border-radius: 10px; background: linear-gradient(#f0f5f7, #dfe8ec); border: 1px solid var(--border); overflow: hidden; }
-.viewer canvas { display: block; width: 100%; height: 100%; }
-.viewer-msg { position: absolute; inset: 0; display: grid; place-items: center; color: var(--muted); padding: 16px; text-align: center; }
-.viewer-legend { position: absolute; left: 10px; bottom: 10px; background: rgba(255, 255, 255, 0.92); border-radius: 8px; padding: 6px 10px; font-size: 0.82rem; display: flex; gap: 12px; }
 .swatch { display: inline-block; width: 12px; height: 3px; vertical-align: middle; margin-right: 5px; border-radius: 2px; }
 .masked { font-family: ui-monospace, Menlo, Consolas, monospace; letter-spacing: 0.04em; }
 

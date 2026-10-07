@@ -8,14 +8,14 @@ import { formatBytes, formatNumber, plural } from '../../lib/format';
 import { INSTRUCTIONS_MAX } from '../../lib/instructions';
 import { readDrop, readFileList, type IntakeResult } from '../../lib/intake';
 import { activeFiles, caseIdProblems, fileSummary, mappingProblems, readInstructionsFor, sourceMapOf, toSpecs, type MapFile, type SourceMap } from '../../lib/review';
-import { CASES_AT_ONCE, friendlyUploadError, pool, submitWhenClean, uploadCaseFiles, type FileStatus } from '../../lib/upload';
+import { CASES_AT_ONCE, friendlyUploadError, pool, submitCase, uploadCaseFiles, type FileStatus } from '../../lib/upload';
 import type { OrgInfo } from '../../lib/types';
 import { Badge, Button, Card, Field, Notice, PageHeader, ProgressBar, Spinner, Toggle } from '../../ui/Common';
 import { DemoSamples } from '../../ui/DemoSamples';
 import { DropZone } from '../../ui/DropZone';
 import { FileMapTable } from '../../ui/FileMapTable';
 import { useBrands } from '../../lib/brands';
-import { useProfile, useUserCaseAddress } from '../../lib/orgApi';
+import { useProfile } from '../../lib/orgApi';
 import { useAuth } from '../../lib/auth';
 
 interface Row {
@@ -48,7 +48,6 @@ export default function SendBulk() {
   const org = useQuery({ queryKey: ['org'], queryFn: () => api<OrgInfo>('/api/org'), retry: false });
   const brands = useBrands();
   const profile = useProfile();
-  const myAddress = useUserCaseAddress();
   const { can } = useAuth();
   const [addressRefused, setAddressRefused] = useState(false);
   const [phase, setPhase] = useState<'pick' | 'reading' | 'review' | 'running' | 'done'>('pick');
@@ -58,7 +57,6 @@ export default function SendBulk() {
   const [brandId, setBrandId] = useState('');
   const [priority, setPriority] = useState<'normal' | 'rush'>('normal');
   const [auto, setAuto] = useState(true);
-  const [ack, setAck] = useState(false);
   const [run, setRun] = useState<Record<string, RunState>>({});
   const [batchId, setBatchId] = useState<string | null>(null);
   const [fatal, setFatal] = useState<string | null>(null);
@@ -66,8 +64,8 @@ export default function SendBulk() {
   const abort = useRef<AbortController | null>(null);
 
   const isLocked = locked || (org.data ? !org.data.uploadsUnlocked : false);
-  // Direct manufacturing needs a case address: the sender's own when complete, otherwise the company's. The server also refuses (case_address_required), so the notice shows either way.
-  const needsAddress = addressRefused || (myAddress.data ? myAddress.data.effective === 'none' : profile.data?.caseAddressComplete === false);
+  // Direct manufacturing needs the company case address. The server also refuses (case_address_required), so the notice shows either way.
+  const needsAddress = addressRefused || profile.data?.caseAddressComplete === false;
 
   async function ingest(read: Promise<IntakeResult>) {
     setPhase('reading');
@@ -167,13 +165,14 @@ export default function SendBulk() {
             patch(r.key, { sent, stage: processing ? 'checking' : 'uploading' });
           },
         });
-        if (!result.ok) {
-          const bad = [...result.files.values()].filter((s) => s.phase !== 'ready').length;
-          patch(r.key, { stage: 'needs_review', message: `${plural(bad, 'file')} did not upload or did not pass the checks.` });
+        // A file the checks rejected does not stop the case. A file that never finished uploading does, so the case is not sent incomplete.
+        const unfinished = [...result.files.values()].filter((s) => s.phase !== 'ready' && s.phase !== 'rejected').length;
+        if (unfinished) {
+          patch(r.key, { stage: 'needs_review', message: `${plural(unfinished, 'file')} did not finish uploading.` });
           return;
         }
         if (!auto) { patch(r.key, { stage: 'needs_review', message: 'Saved as a draft, as you asked.' }); return; }
-        const s = await submitWhenClean(caseUuid, ack, ctrl.signal);
+        const s = await submitCase(caseUuid, ctrl.signal);
         if (s.outcome === 'submitted') patch(r.key, { stage: 'submitted' });
         else if (s.outcome === 'needs_review') patch(r.key, { stage: 'needs_review', message: s.reason });
         else if (s.outcome === 'locked') patch(r.key, { stage: 'needs_review', message: 'Submitting is locked until your account is approved.' });
@@ -197,8 +196,8 @@ export default function SendBulk() {
         </Notice>
       ) : null}
       {needsAddress ? (
-        <Notice tone="warn" title="Add your case address first" action={<Link className="btn btn-sm" to="/portal/account#case-address">Open case address</Link>}>
-          K Line needs to know where to send your cases back to. Add a case address of your own in your account{can('org.edit') ? ', or one for the whole company in the company profile' : ', or ask an administrator to add the company address'}, then come back. You can check your folders here, but the cases cannot be sent until an address is saved.
+        <Notice tone="warn" title="The company case address is missing" action={<Link className="btn btn-sm" to="/portal/company#case-address">Open case address</Link>}>
+          K Line needs to know where to send your cases back to. {can('org.edit') ? 'Add the case address for the whole company in the company profile' : 'Ask an administrator to add the company case address'}, then come back. You can check your folders here, but the cases cannot be sent until an address is saved.
         </Notice>
       ) : null}
 
@@ -232,8 +231,7 @@ export default function SendBulk() {
                 {(p) => <select {...p} value={priority} onChange={(e) => setPriority(e.target.value as 'normal' | 'rush')}><option value="normal">Normal</option><option value="rush">Rush</option></select>}
               </Field>
             </div>
-            <Toggle checked={auto} onChange={setAuto} label="Submit automatically when all checks pass" hint="Cases with errors stay as drafts so you can review them." />
-            {auto ? <Toggle checked={ack} onChange={setAck} label="Also submit cases that only have warnings" hint="You confirm you have read the warnings. Your confirmation is stored with each case." /> : null}
+            <Toggle checked={auto} onChange={setAuto} label="Submit automatically when the files are uploaded" hint="Turn this off to keep every case as a draft so you can review it first." />
           </Card>
 
           <div className="stack">

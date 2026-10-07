@@ -54,7 +54,7 @@ export function checkCaseIdRegex(src: string): string | null {
 // ---------------------------------------------------------------------------
 // Profile
 // ---------------------------------------------------------------------------
-export const CONTACT_KEYS = ['operations', 'quality', 'finance', 'it'] as const;
+export const CONTACT_KEYS = ['operations'] as const;
 type Contact = { name: string; email: string; phone: string };
 
 function contactOf(v: unknown): Contact {
@@ -66,7 +66,7 @@ function contactOf(v: unknown): Contact {
 }
 function contactsView(raw: unknown): Record<(typeof CONTACT_KEYS)[number], Contact> {
   const o = (raw && typeof raw === 'object' ? raw : {}) as Record<string, unknown>;
-  return { operations: contactOf(o.operations), quality: contactOf(o.quality), finance: contactOf(o.finance), it: contactOf(o.it) };
+  return { operations: contactOf(o.operations) };
 }
 function addressView(raw: unknown) {
   const o = (raw && typeof raw === 'object' ? raw : {}) as Record<string, unknown>;
@@ -164,7 +164,7 @@ export const profileSchema = z.object({
   address: z
     .object({ street: plain(200).optional(), city: plain(100).optional(), postalCode: plain(20).optional(), country: z.union([z.literal(''), countryField]).optional() })
     .optional(),
-  contacts: z.object({ operations: contactSchema.optional(), quality: contactSchema.optional(), finance: contactSchema.optional(), it: contactSchema.optional() }).optional(),
+  contacts: z.object({ operations: contactSchema.optional() }).optional(),
   settings: z.object({ caseIdRegex: z.string().max(200).nullable().optional(), requirePts: z.boolean().optional() }).optional(),
   // Partial update allowed. Each field given is checked with the shared validator (shared/caseAddress.ts).
   caseAddress: z

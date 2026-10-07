@@ -60,8 +60,7 @@ A call without the needed scope answers `403 insufficient_scope`.
 | 404 | `not_found` | Unknown, or belongs to another company. |
 | 409 | `case_id_exists` | You already have a case with that case ID. |
 | 409 | `case_not_open` | The case is not a draft or on hold, so files cannot be added and it cannot be submitted. |
-| 409 | `checks_failed` | Errors in the case's checks. `errors` lists them. |
-| 409 | `warnings_need_confirmation` | Warnings. `warnings` lists them; submit again with `acknowledge_warnings: true`. |
+| 409 | `checks_failed` | Only while a file is still uploading or being checked. `errors` lists them. Try again when the files are `ready` or `rejected`. |
 | 409 | `no_site_configured` | Your company has no production site yet. |
 | 409 | `case_address_required` | A direct manufacturing case needs a case address, and there is none that is complete. Keys have no person, so cases created and submitted with a key are always sent with your **company's** case address (the company profile), never with a user's own address. Add it in the company profile first. |
 | 409 | `upload_incomplete` | Not all chunks have arrived (`missing` lists the numbers). |
@@ -200,12 +199,7 @@ See [Uploading files](#uploading-files-step-by-step). `POST /api/v1/cases/{key}/
 
 `POST /api/v1/cases/{key}/submit` (scope `cases:write`), body `{"acknowledge_warnings": true}` optional.
 
-The same rules as in the web app. Errors block submitting (`409 checks_failed`, for example `no_stl`, `missing_mapping`, `duplicate_file`, `file_rejected`, `files_processing`). Warnings need an explicit yes: the first call answers `409 warnings_need_confirmation` with `warnings`; repeat it with `"acknowledge_warnings": true` and the acknowledgement is stored with the case. Only drafts and cases on hold can be submitted. Depending on your company's settings the case becomes `submitted` (K Line reviews it first) or goes straight to `ready` at your production site. The answer is the case object.
-
-```json
-{ "code": "warnings_need_confirmation", "message": "There are warnings. Please read and confirm them to continue.",
-  "warnings": [ { "code": "missing_steps", "message": "The upper aligners are missing steps 2.", "arch": "upper" } ] }
-```
+The same rules as in the web app. The checks (errors and warnings, for example `no_stl`, `missing_mapping`, `duplicate_file`, `file_rejected`) are reported on the case but do not block submitting. Only files that are still uploading or being checked do (`409 checks_failed` with `files_incomplete` or `files_processing`). `acknowledge_warnings` is still accepted and stored with the case, but it is not needed. Only drafts and cases on hold can be submitted. Depending on your company's settings the case becomes `submitted` (K Line reviews it first) or goes straight to `ready` at your production site. The answer is the case object.
 
 ### Shipments for invoicing
 

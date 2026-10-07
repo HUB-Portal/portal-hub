@@ -6,7 +6,6 @@ import { useAuth } from '../../lib/auth';
 import { formatDateTime } from '../../lib/format';
 import type { SessionRow } from '../../lib/types';
 import { Badge, Button, Card, Dialog, Field, Notice, PageHeader, Spinner, Toggle } from '../../ui/Common';
-import { CaseAddressCard } from './CaseAddressCard';
 import { RecoveryCodes } from '../../ui/RecoveryCodes';
 import { ROLE_INFO } from './Team';
 import { PASSWORD_HINT } from '../auth/ResetPassword';
@@ -121,8 +120,6 @@ export default function Account() {
           </form>
         </Card>
       </div>
-
-      {me?.org?.kind === 'partner' ? <CaseAddressCard /> : null}
 
       <NotificationSettings />
 

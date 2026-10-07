@@ -210,6 +210,14 @@ describe('profile case address', () => {
     await contoso.call('PUT', '/api/org/profile', { caseAddress: { city: 'Madrid' } });
   });
 
+  it('has one address for the whole company: people have no address of their own', async () => {
+    for (const method of ['GET', 'PUT', 'DELETE'] as const) {
+      expect((await up.call(method, '/api/account/case-address', method === 'PUT' ? ACME_ADDRESS : undefined)).status, method).toBe(404);
+    }
+    // every role of the company reads the same address from the profile
+    for (const who of [admin, up, viewer]) expect((await who.call('GET', '/api/org/profile')).json.caseAddress).toMatchObject(ACME_ADDRESS);
+  });
+
   it('shows the address and the logo facts to K Line on the partner page', async () => {
     const d = await klAdmin.call('GET', `/api/partners/${acmeId}`);
     expect(d.status).toBe(200);
@@ -439,8 +447,6 @@ describe('sending the case address with direct manufacturing cases', () => {
     expect(pc.submitted).toBe(true);
     expect(await portalOf(up, id)).toMatchObject({ status: 'pushed' });
     expect((await q(`SELECT portal_push->'uploads'->>'address' AS a FROM cases WHERE id = $1`, [id]))[0].a).toBe('true');
-    // nobody in the seed has an own address (per user addresses are tested in phase8.useraddress.test.ts), so the company address was used
-    expect((await q(`SELECT portal_push->>'addressSource' AS s FROM cases WHERE id = $1`, [id]))[0].s).toBe('company');
     // the address is not in events, audit entries or job rows
     const dump = JSON.stringify([await q('SELECT data FROM case_events WHERE case_id = $1', [id]), await q('SELECT payload, last_error FROM jobs'), (await admin.call('GET', '/api/audit?limit=200')).json]);
     expect(dump).not.toMatch(/Rua Direita|Chaves|276000000|goods@acme/);

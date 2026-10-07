@@ -56,7 +56,7 @@ export async function createBatch(
   const actor = actorOf(a, req);
   return tx(ctx, async (c) => {
     // Early gate: the portal keeps a shipping address on every direct case, so say so before the partner uploads gigabytes of files.
-    await assertCaseAddress(c, a.orgId, a.userId);
+    await assertCaseAddress(c, a.orgId);
     if (input.brandId) {
       const b = await one(c, 'SELECT 1 FROM brands WHERE id = $1 AND org_id = $2', [input.brandId, a.orgId]);
       if (!b) throw badRequest('That brand does not exist.', 'invalid_brand');

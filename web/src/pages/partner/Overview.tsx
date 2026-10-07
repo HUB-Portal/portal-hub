@@ -6,7 +6,7 @@ import { api, qs } from '../../lib/api';
 import { useAuth, useMenu } from '../../lib/auth';
 import { formatNumber, greeting } from '../../lib/format';
 import type { CaseList, OrgInfo } from '../../lib/types';
-import { ONBOARDING_HELP, useUserCaseAddress, type Onboarding } from '../../lib/orgApi';
+import { ONBOARDING_HELP, type Onboarding } from '../../lib/orgApi';
 import { Card, Empty, Notice, PageHeader, Spinner } from '../../ui/Common';
 import { LockedNotice } from '../../ui/Locked';
 import { CaseRows } from './Cases';
@@ -43,10 +43,8 @@ export default function Overview() {
   const locked = notApproved || (org.data ? !org.data.uploadsUnlocked : false);
   // Phase 8: the company logo and the case address. Unknown (undefined) when the server does not say.
   const logoDone = org.data?.logo?.hasLogo ?? ob.data?.items.find((i) => i.id === 'logo')?.done;
-  const companyAddressDone = ob.data?.items.find((i) => i.id === 'case_address')?.done;
-  // For the person's own checklist the address that counts is the one their cases are sent with (own or company). Approval still looks at the company address.
-  const myAddress = useUserCaseAddress(can('org.read'));
-  const addressDone = myAddress.data ? myAddress.data.effective !== 'none' : companyAddressDone;
+  // One case address for the whole company, kept by the administrators.
+  const addressDone = ob.data?.items.find((i) => i.id === 'case_address')?.done;
   const onboarding = me?.org?.status === 'onboarding' || locked || (latest.data && total === 0) || logoDone === false || addressDone === false;
 
   useEffect(() => {
@@ -57,7 +55,7 @@ export default function Overview() {
     { done: true, label: 'Create your account' },
     { done: !!me?.user.mfaEnabled, label: 'Set up your authenticator app' },
     ...(logoDone === undefined ? [] : [{ done: logoDone, label: 'Company logo', to: '/portal/company#logo', hint: ONBOARDING_HELP.logo!.hint }]),
-    ...(addressDone === undefined ? [] : [{ done: addressDone, label: 'Case address', to: can('org.edit') ? '/portal/company#case-address' : '/portal/account#case-address', hint: ONBOARDING_HELP.case_address!.hint }]),
+    ...(addressDone === undefined ? [] : [{ done: addressDone, label: 'Case address', to: '/portal/company#case-address', hint: ONBOARDING_HELP.case_address!.hint }]),
     { done: !!org.data?.dpaOnFile, label: 'Data processing agreement recorded by K Line', hint: 'K Line records this with you. Uploads stay locked until it is done.' },
     { done: !!org.data && org.data.uploadsUnlocked, label: 'K Line approves your account', hint: 'This usually takes one working day.' },
     { done: total > 0, label: 'Send your first cases with Direct manufacturing', to: can('case.write') ? '/portal/send/bulk' : undefined },

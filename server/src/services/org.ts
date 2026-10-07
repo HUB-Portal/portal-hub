@@ -6,8 +6,7 @@ import { AppError, forbidden, notFound } from '../http/errors';
 import { clientIp, userAgent } from '../http/util';
 import { z } from 'zod';
 import { MENU_KEYS, MENU_VALUES, type MenuSetting, type MenuValue, type MenuVisible } from '../../../shared/menu';
-import { CASE_ADDRESS_REQUIRED_MESSAGE } from '../../../shared/caseAddress';
-import { resolveCaseAddress } from './userCaseAddress';
+import { CASE_ADDRESS_REQUIRED_MESSAGE, isCompleteCaseAddress, type CaseAddress } from '../../../shared/caseAddress';
 import { storage } from '../storage';
 
 
@@ -111,11 +110,20 @@ export function partnerApproved(a: AuthContext): AuthContext {
 // Case address gate (phase 8)
 // ---------------------------------------------------------------------------
 /**
- * Direct manufacturing cases are pushed with the sender's case address (their own when complete, otherwise the company's), so batches and submits
- * learn early (before any upload) that neither exists: 409 case_address_required. `userId` is the person who sends the case; null (partner API key) means the company address.
+ * The case address of an organisation: one address for everyone in the company, kept by its administrators in the company profile.
+ * Returns null when it is missing or incomplete.
  */
-export async function assertCaseAddress(c: PoolClient, orgId: string, userId: string | null = null): Promise<void> {
-  if (!(await resolveCaseAddress(c, orgId, userId))) throw new AppError(409, 'case_address_required', CASE_ADDRESS_REQUIRED_MESSAGE);
+export async function companyCaseAddress(c: PoolClient, orgId: string): Promise<CaseAddress | null> {
+  const r = await one<{ address: unknown }>(c, `SELECT settings -> 'case_address' AS address FROM organizations WHERE id = $1`, [orgId]);
+  return isCompleteCaseAddress(r?.address) ? r!.address as CaseAddress : null;
+}
+
+/**
+ * Direct manufacturing cases are pushed with the company case address, so batches and submits
+ * learn early (before any upload) that it is missing: 409 case_address_required.
+ */
+export async function assertCaseAddress(c: PoolClient, orgId: string): Promise<void> {
+  if (!(await companyCaseAddress(c, orgId))) throw new AppError(409, 'case_address_required', CASE_ADDRESS_REQUIRED_MESSAGE);
 }
 
 /** Id of the K Line organisation. */
