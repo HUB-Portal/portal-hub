@@ -97,6 +97,7 @@ Command line tool (`server/src/cli.ts`). In development run it from `server/` wi
 | `migrate` | Apply migrations (needs `DATABASE_OWNER_URL`). |
 | `seed [--force]` | Demo data. Development only. |
 | `create-admin --email E --name N [--google]` | Create a K Line administrator and print a one time invite link (valid 7 days). With `--google` no link is made: the person signs in with Google Workspace (needs `OIDC_ALLOWED_DOMAIN`, and an address in that domain), then sets up the authenticator. |
+| `create-user --email E --name N --org CODE --role R[,R] [--password P]` | Create a user in any organization (partner code or `KLINE`) with a password and no invite link or email. Without `--password` a random one is printed once. The person still sets up an authenticator app at first sign in. |
 | `gen-key [--id ID]` | Print a new master key entry for `MASTER_KEYS`. |
 | `audit-verify` | Verify the audit log hash chain. Exit code 1 when it is broken. |
 | `audit-trim --months N` | Remove audit entries older than N months (default `AUDIT_RETENTION_MONTHS`, 36). |

@@ -181,6 +181,7 @@ input[aria-invalid='true'] { border-color: var(--bad); }
 .nav a { display: flex; align-items: center; gap: 10px; padding: 9px 10px; border-radius: 8px; color: #dbe9ed; text-decoration: none; font-weight: 550; }
 .nav a:hover { background: rgba(255, 255, 255, 0.09); color: #fff; }
 .nav a[aria-current='page'] { background: rgba(255, 255, 255, 0.16); color: #fff; }
+.nav-badge { margin-left: auto; min-width: 20px; padding: 1px 7px; border-radius: 999px; background: #f4b740; color: #1b2a2f; font-size: 0.75rem; font-weight: 700; text-align: center; }
 .nav-label { font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.08em; color: #8fb0ba; padding: 10px 10px 4px; }
 .sidebar-foot { margin-top: auto; display: grid; gap: 10px; padding: 0 8px; font-size: 0.86rem; }
 .sidebar-foot .btn { background: transparent; color: #fff; border-color: rgba(255, 255, 255, 0.35); }

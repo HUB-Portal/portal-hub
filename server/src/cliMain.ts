@@ -8,6 +8,9 @@ import { runRetention } from './services/retention';
 import { runPortalSync } from './services/portalSync';
 import { REWRAP_KINDS, rewrapAll, type RewrapKind } from './services/rewrap';
 import { CLI_USAGE } from './cliUsage';
+import { randomBytes } from 'node:crypto';
+import { checkPasswordPolicy, hashPassword } from './crypto/password';
+import { KLINE_ROLES, PARTNER_ROLES } from '../../shared/roles';
 
 function flag(args: string[], name: string): string | undefined {
   const i = args.indexOf(`--${name}`);
@@ -57,6 +60,37 @@ async function main(): Promise<number> {
         console.log('Administrator created. They sign in with "Sign in with Google" on the sign in page, then set up their authenticator app.');
         if (!config.oidc.googleEnabled) console.log('Note: Google sign in is not switched on yet (OIDC_GOOGLE_CLIENT_ID and OIDC_GOOGLE_CLIENT_SECRET).');
       }
+      return 0;
+    }
+    case 'create-user': {
+      // A user with a password and no invite link or email: for a first or temporary account when mail is not working yet.
+      const email = flag(args, 'email')?.trim().toLowerCase();
+      const name = flag(args, 'name')?.trim();
+      const orgCode = flag(args, 'org')?.trim().toUpperCase();
+      const roles = [...new Set((flag(args, 'role') ?? '').split(',').map((r) => r.trim()).filter(Boolean))];
+      if (!email || !name || !orgCode || !roles.length) throw new Error('--email, --name, --org and --role are required');
+      const given = flag(args, 'password');
+      let password = given ?? '';
+      // A generated password is drawn again until it passes the same rules as a typed one.
+      while (!given && checkPasswordPolicy(password, { email, name })) password = `${randomBytes(15).toString('base64url')}-${randomBytes(3).toString('hex')}`;
+      const problem = checkPasswordPolicy(password, { email, name });
+      if (problem) throw new Error(`The password is not acceptable: ${problem}`);
+      const hash = await hashPassword(password);
+      await tx(SYSTEM, async (c) => {
+        const org = await c.query(`SELECT id, kind FROM organizations WHERE upper(code) = $1`, [orgCode]);
+        if (!org.rows[0]) throw new Error(`No organization has the code ${orgCode}.`);
+        const allowed = (org.rows[0].kind === 'kline' ? KLINE_ROLES : PARTNER_ROLES) as readonly string[];
+        const wrong = roles.filter((r) => !allowed.includes(r));
+        if (wrong.length) throw new Error(`Role not available for this organization: ${wrong.join(', ')}. Choose from: ${allowed.join(', ')}.`);
+        const u = await c.query(
+          `INSERT INTO users (org_id, email, name, roles, status, auth_provider, password_hash, password_changed_at) VALUES ($1, $2, $3, $4, 'invited', 'local', $5, now()) RETURNING id`,
+          [org.rows[0].id, email, name, roles, hash],
+        );
+        await audit(c, { actorType: 'system', orgId: org.rows[0].id, action: 'cli.user_created', targetType: 'user', targetId: u.rows[0].id, details: { roles } });
+      });
+      console.log(`User created: ${email} (${roles.join(', ')}) in ${orgCode}.`);
+      if (!given) console.log(`Password (shown once): ${password}`);
+      console.log('On first sign in they must set up an authenticator app. Ask them to change the password afterwards (Account).');
       return 0;
     }
     case 'audit-verify': {
