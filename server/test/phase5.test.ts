@@ -865,19 +865,23 @@ describe('company profile permissions', () => {
     expect(put.json).toMatchObject({
       id: acmeId, name: 'Acme Aligners', code: 'ACME', status: 'active', approved: true, legalName: 'Acme Aligners Limited', country: 'PT', vatId: 'PT501964843', vatRequired: true,
       address: { street: '1 Rua Direita', city: 'Chaves', postalCode: '5400-001', country: 'PT' },
-      contacts: { operations: { name: 'Olga Ops', email: 'ops@acme.demo', phone: '+351 276 000 000' }, quality: { name: '', email: '', phone: '' }, finance: { name: '', email: '', phone: '' }, it: { name: '', email: '', phone: '' } },
+      contacts: { operations: { name: 'Olga Ops', email: 'ops@acme.demo', phone: '+351 276 000 000' } },
       settings: { caseIdRegex: '^AC-\\d{4}$', requirePts: true }, logo: { hasLogo: true, version: expect.any(String) }, hasLogo: true, logoRequired: true, profileFiles: { count: expect.any(Number), max: null },
     });
     const again = await acmeAdmin.call('GET', '/api/org/profile');
     expect(again.json).toEqual(put.json);
     // a partial update leaves the rest
-    const part = await acmeAdmin.call('PUT', '/api/org/profile', { contacts: { it: { email: 'it@acme.demo' } }, settings: { requirePts: false } });
-    expect(part.json.contacts.it.email).toBe('it@acme.demo');
+    const part = await acmeAdmin.call('PUT', '/api/org/profile', { contacts: { operations: { email: 'ops2@acme.demo' } }, settings: { requirePts: false } });
+    expect(part.json.contacts.operations.email).toBe('ops2@acme.demo');
     expect(part.json.contacts.operations.name).toBe('Olga Ops');
+    // Operations is the only contact: quality, finance and IT are not stored or returned any more
+    const extra = await acmeAdmin.call('PUT', '/api/org/profile', { contacts: { it: { email: 'it@acme.demo' }, finance: { email: 'fin@acme.demo' } } });
+    expect(Object.keys(extra.json.contacts)).toEqual(['operations']);
+    expect(JSON.stringify((await klAdmin.call('GET', `/api/partners/${acmeId}`)).json.contacts)).not.toMatch(/it@acme|fin@acme/);
     expect(part.json.settings).toEqual({ caseIdRegex: '^AC-\\d{4}$', requirePts: false });
     expect(part.json.legalName).toBe('Acme Aligners Limited');
     // the K Line settings view reflects it
-    expect((await klAdmin.call('GET', `/api/partners/${acmeId}`)).json).toMatchObject({ settings: { requirePts: false }, contacts: { it: { email: 'it@acme.demo' } }, addressDetails: { city: 'Chaves' } });
+    expect((await klAdmin.call('GET', `/api/partners/${acmeId}`)).json).toMatchObject({ settings: { requirePts: false }, contacts: { operations: { email: 'ops2@acme.demo' } }, addressDetails: { city: 'Chaves' } });
     // clearing the pattern
     const cleared = await acmeAdmin.call('PUT', '/api/org/profile', { settings: { caseIdRegex: null } });
     expect(cleared.json.settings.caseIdRegex).toBeNull();
@@ -895,8 +899,8 @@ describe('company profile permissions', () => {
     expect(evil.status).toBe(400);
     expect(evil.json.fields[0]).toMatchObject({ path: 'settings.caseIdRegex', message: expect.stringMatching(/too slow/) });
     expect((await bad({ settings: { caseIdRegex: 'a'.repeat(201) } })).status).toBe(400);
-    expect((await bad({ contacts: { finance: { email: 'not an email' } } })).status).toBe(400);
-    expect((await bad({ contacts: { finance: { phone: 'call me maybe' } } })).status).toBe(400);
+    expect((await bad({ contacts: { operations: { email: 'not an email' } } })).status).toBe(400);
+    expect((await bad({ contacts: { operations: { phone: 'call me maybe' } } })).status).toBe(400);
     expect((await bad({ address: { country: 'ZZ' } })).status).toBe(400);
     expect((await bad({ legalName: '<script>' })).status).toBe(400);
     expect((await bad({ name: 'www.acme.com' })).status).toBe(400);
@@ -1146,7 +1150,7 @@ describe('getting started checklist and locked features', () => {
     expect((await r.c.call('GET', '/api/org/onboarding')).json.items.find((i: any) => i.id === 'profile').done).toBe(false);
     await r.c.call('PUT', '/api/org/profile', { vatId: 'DE123456789' });
     expect((await r.c.call('GET', '/api/org/onboarding')).json.items.find((i: any) => i.id === 'profile').done).toBe(false);
-    await r.c.call('PUT', '/api/org/profile', { contacts: { quality: { email: 'quality@zyxwv-dental.test' } } });
+    await r.c.call('PUT', '/api/org/profile', { contacts: { operations: { email: 'ops@zyxwv-dental.test' } } });
     expect((await r.c.call('GET', '/api/org/onboarding')).json.items.find((i: any) => i.id === 'profile').done).toBe(true);
     // a non EU company does not need a VAT id
     await r.c.call('PUT', '/api/org/profile', { country: 'CH', vatId: '' });

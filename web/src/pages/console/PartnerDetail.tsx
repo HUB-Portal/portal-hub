@@ -299,7 +299,7 @@ function RegistrationCard({ p, signup }: { p: PartnerData; signup: SignupInfo })
 
 // ---------------------------------------------------------------------------------------------------------- profile
 
-const CONTACT_TITLES: Record<string, string> = { operations: 'Operations', quality: 'Quality', finance: 'Finance', it: 'IT' };
+const CONTACT_TITLES: Record<string, string> = { operations: 'Operations' };
 
 /** What the partner has filled in on their company profile page. */
 function ProfileCard({ p }: { p: PartnerData }) {

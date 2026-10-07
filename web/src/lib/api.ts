@@ -95,7 +95,7 @@ export async function api<T = unknown>(path: string, opts: ApiOptions = {}, retr
 }
 
 /** What people read when K Line cannot take a case because the case address is missing. */
-export const CASE_ADDRESS_REQUIRED_TEXT = 'Add your case address in your account or in the company profile, then try again.';
+export const CASE_ADDRESS_REQUIRED_TEXT = 'The company case address is missing. An administrator can add it in the company profile, then try again.';
 
 export function errorText(e: unknown): string {
   if (e instanceof ApiError) {

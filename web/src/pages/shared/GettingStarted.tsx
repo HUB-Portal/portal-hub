@@ -99,7 +99,7 @@ function Checklist() {
         if (!can('org.logo')) return <span className="muted small">Ask a colleague to add it.</span>;
         return <Link className="btn btn-sm" to="/portal/company#logo" aria-label={`${item.label}: go to the logo`}>Go to the logo</Link>;
       case 'case_address':
-        return <Link className="btn btn-sm" to={can('org.edit') ? '/portal/company#case-address' : '/portal/account#case-address'} aria-label={`${item.label}: go to the case address`}>Go to the case address</Link>;
+        return <Link className="btn btn-sm" to="/portal/company#case-address" aria-label={`${item.label}: go to the case address`}>Go to the case address</Link>;
       case 'spec':
         if (can('spec.read') && menu.spec) return <Link className="btn btn-sm" to="/portal/spec" aria-label={`${item.label}: go to Production spec`}>Go to Production spec</Link>;
         return <span className="muted small">Ask a colleague who can see the production spec.</span>;
@@ -148,7 +148,7 @@ function Roles() {
           </tbody>
         </table>
       </div>
-      <p>Everyone except viewers can change the company logo. Each person can set their own case address in Account.</p>
+      <p>Everyone except viewers can change the company logo. The case address is one address for the whole company and an administrator keeps it.</p>
     </section>
   );
 }
