@@ -415,7 +415,7 @@ function FactsCard({ c, staff, routing }: { c: CaseItem; staff: boolean; routing
       <dl className="facts">
         <dt>Reference</dt><dd>{c.ref}</dd>
         {staff ? <><dt>Partner</dt><dd>{c.orgName ?? 'Unknown'}{c.orgCode ? <span className="muted"> ({c.orgCode})</span> : null}</dd></> : null}
-        <dt>Case ID</dt><dd>{c.caseId ?? 'None'}</dd>
+        {c.caseId || c.manufacturingMode !== 'direct' ? <><dt>Case ID</dt><dd>{c.caseId ?? 'None'}</dd></> : null}
         <dt>Patient</dt>
         <dd>
           {name !== null ? (
@@ -538,7 +538,7 @@ function EraseDialog({ open, c, followUps, onClose, onDone }: { open: boolean; c
           <ul>
             <li>All files of the case: models, trim lines, documents and photos. They can no longer be downloaded.</li>
             <li>The patient name and the instructions.</li>
-            <li>The case ID{c.caseId ? ` (${c.caseId})` : ''}{direct ? ', which is the patient ID of a direct manufacturing case' : ''}.</li>
+            {c.caseId ? <li>The case ID ({c.caseId}).</li> : null}
             <li>Text people typed around the case: hold reasons, the notes of quality claims on the case, and the case ID in webhook records.</li>
           </ul>
         </div>

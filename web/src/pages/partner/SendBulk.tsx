@@ -7,7 +7,7 @@ import { api, ApiError } from '../../lib/api';
 import { formatBytes, formatNumber, plural } from '../../lib/format';
 import { INSTRUCTIONS_MAX } from '../../lib/instructions';
 import { readDrop, readFileList, type IntakeResult } from '../../lib/intake';
-import { activeFiles, caseIdProblems, fileSummary, mappingProblems, readInstructionsFor, sourceMapOf, toSpecs, type MapFile, type SourceMap } from '../../lib/review';
+import { activeFiles, fileSummary, mappingProblems, readInstructionsFor, sourceMapOf, toSpecs, type MapFile, type SourceMap } from '../../lib/review';
 import { CASES_AT_ONCE, friendlyUploadError, pool, submitWhenClean, uploadCaseFiles, type FileStatus } from '../../lib/upload';
 import type { OrgInfo } from '../../lib/types';
 import { Badge, Button, Card, Field, Notice, PageHeader, ProgressBar, Spinner, Toggle } from '../../ui/Common';
@@ -21,7 +21,6 @@ import { useAuth } from '../../lib/auth';
 interface Row {
   key: string;
   folder: string;
-  patientId: string;
   firstName: string;
   lastName: string;
   needsReview: boolean;
@@ -39,7 +38,7 @@ const STAGE_TEXT: Record<Stage, string> = {
 };
 
 const ENTRY_ERRORS: Record<string, string> = {
-  invalid_request: 'The details for this case were not accepted. Check the patient ID and names.',
+  invalid_request: 'The details for this case were not accepted. Check the names.',
 };
 
 export default function SendBulk() {
@@ -78,7 +77,7 @@ export default function SendBulk() {
     const list: Row[] = await Promise.all(built.map(async (b) => {
       const t = await readInstructionsFor(b.files as MapFile[], sources.current);
       return {
-        key: b.key, folder: b.folder, patientId: b.patientId, firstName: b.firstName, lastName: b.lastName, needsReview: b.needsReview,
+        key: b.key, folder: b.folder, firstName: b.firstName, lastName: b.lastName, needsReview: b.needsReview,
         files: b.files.map((f) => ({ ...f })) as MapFile[], instructions: t.text, instructionNote: t.message,
       };
     }));
@@ -91,9 +90,7 @@ export default function SendBulk() {
   const analysis = useMemo(() => {
     return rows.map((r) => {
       const act = activeFiles(r.files);
-      const problems = [...validateBulkCase({ patientId: r.patientId, firstName: r.firstName, lastName: r.lastName, files: act })];
-      const idBad = r.patientId.trim() ? caseIdProblems(r.patientId) : null;
-      if (idBad) problems.push(idBad.replace('case ID', 'patient ID'));
+      const problems = [...validateBulkCase({ firstName: r.firstName, lastName: r.lastName, files: act })];
       if (act.length && act.filter((f) => f.kind === 'stl').length === 0) problems.push('No 3D models (STL) found.');
       problems.push(...mappingProblems(r.files));
       const sum = fileSummary(r.files);
@@ -123,7 +120,7 @@ export default function SendBulk() {
         signal: ctrl.signal,
         body: {
           cases: rows.map((r) => ({
-            key: r.key, patientId: r.patientId.trim(), firstName: r.firstName.trim(), lastName: r.lastName.trim(),
+            key: r.key, firstName: r.firstName.trim(), lastName: r.lastName.trim(),
             ...(r.instructions.trim() ? { instructions: r.instructions.slice(0, INSTRUCTIONS_MAX) } : {}),
           })),
           ...(brandId ? { brandId } : {}),
@@ -183,7 +180,7 @@ export default function SendBulk() {
 
   return (
     <div className="page">
-      <PageHeader title="Direct manufacturing" subtitle="This is how you send cases to K Line. Drop one zip file or folder with one folder per case, named with the patient ID and name, for example 55813 Marc Alonso. You check every case before anything is sent." />
+      <PageHeader title="Direct manufacturing" subtitle="This is how you send cases to K Line. Drop one zip file or folder with one folder per case, named with the patient's first and last name, for example Marc Alonso. You check every case before anything is sent." />
 
       {isLocked ? (
         <Notice tone="warn" title="Sending is locked for now" action={<Link className="btn btn-sm" to="/portal">See what is left to do</Link>}>
@@ -200,7 +197,7 @@ export default function SendBulk() {
         <>
           <DemoSamples />
           <DropZone title="Drop your zip file or folder here" busy={phase === 'reading'} onSnapshot={(s) => { void ingest(readDrop(s)); }} onList={(l) => { void ingest(readFileList(l)); }}>
-            Each case folder holds its models, trim lines and documents. You will check every patient ID and name on the next screen.
+            Each case folder holds its models, trim lines and documents. You will check every patient name on the next screen.
           </DropZone>
           {phase === 'reading' ? <Spinner label="Reading your files" /> : null}
           {notes.map((n) => <Notice key={n} tone="warn">{n}</Notice>)}
@@ -212,7 +209,7 @@ export default function SendBulk() {
           {fatal ? <Notice tone="bad">{fatal}</Notice> : null}
           {notes.map((n) => <Notice key={n} tone="warn">{n}</Notice>)}
           <Notice tone="info" title="Check the names">
-            Patient ID, first name and last name are needed for every case. Name order differs between clinics, so please check each one. Use Swap names if first and last are the wrong way round.
+            First name and last name are needed for every case. Name order differs between clinics, so please check each one. Use Swap names if first and last are the wrong way round.
           </Notice>
 
           <Card title="Options for this batch">
@@ -236,8 +233,7 @@ export default function SendBulk() {
                 <details key={r.key} className="case-row" open={bad || r.needsReview || undefined} style={bad ? { borderColor: 'var(--bad)' } : undefined}>
                   <summary>
                     <div className="case-sum">
-                      <span className="id">{r.patientId || 'No patient ID'}</span>
-                      <span>{[r.firstName, r.lastName].filter(Boolean).join(' ') || 'No name'}</span>
+                      <span className="id">{[r.firstName, r.lastName].filter(Boolean).join(' ') || 'No name'}</span>
                       {r.needsReview ? <Badge tone="warn">Check the names</Badge> : null}
                       <Badge tone="info">{plural(a.sum.modelCount, 'model')}</Badge>
                       <Badge tone="info">{plural(a.sum.ptsCount, 'trim line')}</Badge>
@@ -250,7 +246,6 @@ export default function SendBulk() {
                   <div className="case-body">
                     {bad ? <ul className="problem-list">{a.problems.map((p) => <li key={p}>{p}</li>)}</ul> : null}
                     <div className="form-grid">
-                      <Field label="Patient ID">{(p) => <input {...p} value={r.patientId} onChange={(e) => update(r.key, { patientId: e.target.value })} maxLength={64} autoComplete="off" required />}</Field>
                       <Field label="First name">{(p) => <input {...p} value={r.firstName} onChange={(e) => update(r.key, { firstName: e.target.value, needsReview: false })} maxLength={NAME_MAX + 20} autoComplete="off" required />}</Field>
                       <Field label="Last name">{(p) => <input {...p} value={r.lastName} onChange={(e) => update(r.key, { lastName: e.target.value, needsReview: false })} maxLength={NAME_MAX + 20} autoComplete="off" required />}</Field>
                     </div>
@@ -288,7 +283,7 @@ export default function SendBulk() {
           {phase === 'running' ? <Notice tone="info">Keep this page open until it finishes. Submitted cases are then sent on to the K Line customer portal.</Notice> : null}
           <div className="table-wrap">
             <table className="table">
-              <thead><tr><th>Patient ID</th><th>Progress</th><th>Result</th></tr></thead>
+              <thead><tr><th>Patient</th><th>Progress</th><th>Result</th></tr></thead>
               <tbody>
                 {rows.map((r) => {
                   const s = run[r.key];
@@ -296,9 +291,9 @@ export default function SendBulk() {
                   const active = s.stage === 'uploading' || s.stage === 'checking' || s.stage === 'creating';
                   return (
                     <tr key={r.key}>
-                      <td><strong>{r.patientId}</strong>{s.caseUuid ? <div className="small"><Link to={`/portal/cases/${s.caseUuid}`}>Open the case</Link></div> : null}</td>
+                      <td><strong>{[r.firstName, r.lastName].filter(Boolean).join(' ')}</strong>{s.caseUuid ? <div className="small"><Link to={`/portal/cases/${s.caseUuid}`}>Open the case</Link></div> : null}</td>
                       <td style={{ minWidth: 160 }}>
-                        <ProgressBar label={`Progress for patient ${r.patientId}`} value={s.stage === 'waiting' || s.stage === 'creating' ? 0 : s.total ? (s.stage === 'uploading' ? s.sent / s.total : 1) : 1} />
+                        <ProgressBar label={`Progress for ${[r.firstName, r.lastName].filter(Boolean).join(' ')}`} value={s.stage === 'waiting' || s.stage === 'creating' ? 0 : s.total ? (s.stage === 'uploading' ? s.sent / s.total : 1) : 1} />
                         {active && s.stage !== 'creating' ? <div className="small muted">{formatBytes(s.sent)} of {formatBytes(s.total)}</div> : null}
                       </td>
                       <td>

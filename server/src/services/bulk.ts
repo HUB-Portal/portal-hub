@@ -10,7 +10,8 @@ import { CASE_SELECT, INSTRUCTIONS_MAX, actorOf, caseDto, insertCase, refreshBat
 
 export interface BulkEntryInput {
   key: string;
-  patientId: string;
+  /** No longer asked for. Stored as the case ID when an older client still sends one. */
+  patientId?: string | null;
   firstName: string;
   lastName: string;
   instructions?: string | null;
@@ -28,22 +29,23 @@ export interface BulkEntryResult {
 const clean = (s: string) => s.normalize('NFC').replace(/[\u0000-\u001f\u007f]/g, '').replace(/\s+/g, ' ').trim();
 
 /** Mandatory data rules for one direct manufacturing case. Returns the cleaned values or an error. */
-export function validateBulkEntry(e: BulkEntryInput): { ok: true; patientId: string; first: string; last: string } | { ok: false; error: string; message: string } {
+export function validateBulkEntry(e: BulkEntryInput): { ok: true; patientId: string | null; first: string; last: string } | { ok: false; error: string; message: string } {
   const patientId = clean(e.patientId ?? '');
   const first = clean(e.firstName ?? '');
   const last = clean(e.lastName ?? '');
-  if (!patientId) return { ok: false, error: 'patient_id_required', message: 'Patient ID is missing.' };
-  if (patientId.length > CASE_ID_MAX || !CASE_ID_ALPHABET.test(patientId)) {
-    return { ok: false, error: 'invalid_patient_id', message: `Patient ID may use letters, digits, spaces and _ . / # - only, up to ${CASE_ID_MAX} characters.` };
-  }
-  if (caseIdRuleProblem(patientId)) {
-    return { ok: false, error: 'invalid_patient_id', message: 'Patient ID cannot have two dots in a row, and cannot start or end with a dot or a slash.' };
+  if (patientId) {
+    if (patientId.length > CASE_ID_MAX || !CASE_ID_ALPHABET.test(patientId)) {
+      return { ok: false, error: 'invalid_patient_id', message: `Patient ID may use letters, digits, spaces and _ . / # - only, up to ${CASE_ID_MAX} characters.` };
+    }
+    if (caseIdRuleProblem(patientId)) {
+      return { ok: false, error: 'invalid_patient_id', message: 'Patient ID cannot have two dots in a row, and cannot start or end with a dot or a slash.' };
+    }
   }
   if (!first) return { ok: false, error: 'first_name_required', message: 'Patient first name is missing.' };
   if (!last) return { ok: false, error: 'last_name_required', message: 'Patient last name is missing.' };
   if (first.length > NAME_MAX || last.length > NAME_MAX) return { ok: false, error: 'name_too_long', message: `Names can be at most ${NAME_MAX} characters.` };
   if (e.instructions && e.instructions.length > INSTRUCTIONS_MAX) return { ok: false, error: 'instructions_too_long', message: `Instructions can be at most ${INSTRUCTIONS_MAX.toLocaleString('en-GB')} characters.` };
-  return { ok: true, patientId, first, last };
+  return { ok: true, patientId: patientId || null, first, last };
 }
 
 export async function createBatch(
@@ -78,12 +80,12 @@ export async function createBatch(
       await c.query('SAVEPOINT bulk_entry');
       try {
         const r = await insertCase(c, {
-          orgId: a.orgId, actor, mode: 'direct', caseId: v.patientId, firstName: v.first, lastName: v.last, brandId: input.brandId, priority: input.priority,
+          orgId: a.orgId, actor, mode: 'direct', caseId: v.patientId ?? undefined, firstName: v.first, lastName: v.last, brandId: input.brandId, priority: input.priority,
           instructions: e.instructions || null, batchId,
         });
         await c.query('RELEASE SAVEPOINT bulk_entry');
         created++;
-        results.push({ key: e.key, id: r.id, ref: r.ref, caseId: v.patientId });
+        results.push({ key: e.key, id: r.id, ref: r.ref, caseId: v.patientId ?? undefined });
       } catch (err: any) {
         await c.query('ROLLBACK TO SAVEPOINT bulk_entry');
         if (err instanceof AppError) {

@@ -64,7 +64,6 @@ describe('direct manufacturing bulk intake', () => {
         { key: 'b', patientId: '90001', firstName: 'Jan', lastName: 'Kowalski' },
         { key: 'c', patientId: '70001', firstName: '', lastName: 'Nofirst' },
         { key: 'd', patientId: '70002', firstName: 'Nolast', lastName: '   ' },
-        { key: 'e', patientId: '', firstName: 'No', lastName: 'Id' },
         { key: 'f', patientId: '70003', firstName: 'x'.repeat(51), lastName: 'Long' },
         { key: 'h', patientId: 'bad<id>', firstName: 'Bad', lastName: 'Id' },
       ],
@@ -78,7 +77,6 @@ describe('direct manufacturing bulk intake', () => {
     expect(byKey.b.id).toBeTruthy();
     expect(byKey.c.error).toBe('first_name_required');
     expect(byKey.d.error).toBe('last_name_required');
-    expect(byKey.e.error).toBe('patient_id_required');
     expect(byKey.f.error).toBe('name_too_long');
     expect(byKey.h.error).toBe('invalid_patient_id');
     expect(byKey.c.id).toBeUndefined();
@@ -98,6 +96,11 @@ describe('direct manufacturing bulk intake', () => {
     const again = await up.call('POST', '/api/bulk/batches', { cases: [{ key: 'z', patientId: '55813', firstName: 'Other', lastName: 'Person' }] });
     expect(again.status, JSON.stringify(again.json)).toBe(201);
     expect(again.json.cases[0].id).toBeTruthy();
+    // no patient ID at all: the case is created without a case ID
+    const noId = await up.call('POST', '/api/bulk/batches', { cases: [{ key: 'n', firstName: 'No', lastName: 'Number' }] });
+    expect(noId.status, JSON.stringify(noId.json)).toBe(201);
+    expect(noId.json.cases[0].id).toBeTruthy();
+    expect((await q('SELECT partner_case_id FROM cases WHERE id = $1', [noId.json.cases[0].id]))[0].partner_case_id).toBeNull();
     const std = await up.call('POST', '/api/cases', { caseId: 'STD-DUP' });
     expect(std.status).toBe(201);
     const dupStd = await up.call('POST', '/api/cases', { caseId: 'STD-DUP' });
@@ -117,7 +120,7 @@ describe('direct manufacturing bulk intake', () => {
       // "ALONSO, Marc" normalises to the same letters as "Alonso Marc"
       expect(s.json.items.map((c: any) => c.id), term).toEqual([ids.a]);
     }
-    expect((await up.call('GET', '/api/cases?mode=direct')).json.total).toBe(3); // two from the first batch and the repeated patient ID from the second
+    expect((await up.call('GET', '/api/cases?mode=direct')).json.total).toBe(4); // two from the first batch, then the repeated and the missing patient ID
     const reveal = await up.call('POST', `/api/cases/${ids.a}/reveal-name`, {});
     expect(reveal.json).toEqual({ patientName: 'Marc Alonso', firstName: 'Marc', lastName: 'Alonso' });
     // patient ID and names of direct cases can be corrected while in draft

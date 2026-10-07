@@ -23,7 +23,7 @@ Open http://localhost:5173 (or http://localhost:4000 after `npm run build`).
   2. `Case NNNNN` with flat files such as `NNNNN_U01.stl`, `NNNNN_U01_T.stl` (a template) and an `instructions.txt`.
   3. A fictional patient folder (for example `50133 Lucia Garcia`) with `Maxilla` and `Mandible` sub folders and an RTF instructions file.
   4. `Case NNNNN` whose upper step 3 trim line is open on purpose, so the checks have something to show.
-  Every folder is named `NNNNN First Last` (made up names), so the review screen already shows a patient ID, first name and last name. Keep the zip on your desktop.
+  Every folder is named `NNNNN First Last` (made up names), so the review screen already shows the first and last name (the number is ignored). Keep the zip on your desktop.
 * For the factory system steps and the API step, open a terminal in the repository root (Git Bash on Windows) and run:
 
 ```bash
@@ -61,11 +61,11 @@ Say: "Everyone signs in with a password and an authenticator code. There is no w
 
 Click: **Direct manufacturing**. This is the only way partners send cases in the Hub. Drop the sample zip.
 
-Say: "Your browser reads the zip. Nothing has left the machine yet. The Hub works out the cases, arches and steps from folder and file names. The server never unpacks an archive. Each case is a folder named with the patient ID and the name, like `55813 Marc Alonso`."
+Say: "Your browser reads the zip. Nothing has left the machine yet. The Hub works out the cases, arches and steps from folder and file names. The server never unpacks an archive. Each case is a folder named with the patient's name, like `Marc Alonso`."
 
 Click: on the review screen, show the parsed rows: the case with upper and lower sub folders, the one with flat files, the one named after a patient and the one with the open trim line. Show the file map with arch and step. Show that `_T` files are templates, and that the Word, RTF and text files became the case instructions.
 
-Say: "Each folder name carries the patient ID, first name and last name. A case needs all three, and partners order names differently, so you can check each row and swap the names if needed."
+Say: "Each folder name carries the first name and last name. A case needs both, and partners order names differently, so you can check each row and swap the names if needed."
 
 Click: look at the parsed names, click **Swap names** on one row to show how the order can be corrected, and click it again to restore it.
 
