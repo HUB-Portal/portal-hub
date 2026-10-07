@@ -222,6 +222,7 @@ Read from the environment and validated by zod in `server/src/config.ts`. In dev
 | `BLIND_INDEX_KEY_ID` | required | Key id for the name blind index. Must be in `MASTER_KEYS`. |
 | `HASH_KEY_ID` | `BLIND_INDEX_KEY_ID` | Key id for keyed hashes that cannot be recreated (API keys, recovery codes, CSRF tokens). Does not change when `ACTIVE_KEY_ID` rotates. Must be in `MASTER_KEYS`. |
 | `STORAGE_DRIVER` | `fs` | `fs` or `s3`. |
+| `FILE_STORAGE_DRIVER` | none | Same values; wins over `STORAGE_DRIVER` when set. Use it on Vercel, whose container builder reads `STORAGE_DRIVER` itself and stops on `s3`. |
 | `STORAGE_DIR` | `server/data/files` | Directory for the `fs` driver. |
 | `S3_ENDPOINT`, `S3_BUCKET` | none | Required for `s3` in production. |
 | `S3_REGION` | `eu-central-1` | |

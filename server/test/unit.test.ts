@@ -266,6 +266,10 @@ describe('configuration', () => {
     expect(parseConfig({ ...prod, SCANNER: 'none', ALLOW_NO_SCANNER: 'true' }).allowNoScanner).toBe(true);
     expect(() => parseConfig({ ...prod, SMTP_URL: undefined })).toThrow(/SMTP/);
     expect(() => parseConfig({ ...prod, STORAGE_DRIVER: 's3' })).toThrow(/S3_BUCKET/);
+    expect(() => parseConfig({ ...prod, FILE_STORAGE_DRIVER: 's3' })).toThrow(/S3_BUCKET/);
+    expect(parseConfig({ ...base, STORAGE_DRIVER: 'fs', FILE_STORAGE_DRIVER: 's3', S3_BUCKET: 'b', S3_ENDPOINT: 'https://s3.example.com' }).storageDriver).toBe('s3');
+    expect(parseConfig({ ...base, STORAGE_DRIVER: 's3', S3_BUCKET: 'b', S3_ENDPOINT: 'https://s3.example.com' }).storageDriver).toBe('s3');
+    expect(parseConfig({ ...base }).storageDriver).toBe('fs');
     expect(() => parseConfig({ ...base, MASTER_KEYS: '{"k1":"c2hvcnQ="}' })).toThrow(/32 bytes/);
     expect(() => parseConfig({ ...base, DATABASE_URL: 'postgres://kph_app:short@localhost/kph' })).toThrow(/16 characters/);
   });

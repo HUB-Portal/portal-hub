@@ -31,6 +31,8 @@ const schema = z.object({
   /** Key for hashes that cannot be re-created (API keys, recovery codes, CSRF tokens). Defaults to BLIND_INDEX_KEY_ID. Never rotates. */
   HASH_KEY_ID: z.string().regex(/^[A-Za-z0-9_-]{1,32}$/).optional(),
   STORAGE_DRIVER: z.enum(['fs', 's3']).default('fs'),
+  /** Same meaning as STORAGE_DRIVER and wins over it. Use this name on hosts whose image builder reads STORAGE_DRIVER itself (Vercel container builds do). */
+  FILE_STORAGE_DRIVER: z.enum(['fs', 's3']).optional(),
   STORAGE_DIR: z.string().default(path.join(SERVER_ROOT, 'data', 'files')),
   S3_ENDPOINT: z.string().optional(),
   S3_BUCKET: z.string().optional(),
@@ -190,6 +192,7 @@ export function parseConfig(source: Record<string, string | undefined>): Config 
   if (!masterKeys[e.BLIND_INDEX_KEY_ID]) problems.push('BLIND_INDEX_KEY_ID is not present in MASTER_KEYS');
   if (e.HASH_KEY_ID && !masterKeys[e.HASH_KEY_ID]) problems.push('HASH_KEY_ID is not present in MASTER_KEYS');
 
+  const storageDriver = e.FILE_STORAGE_DRIVER ?? e.STORAGE_DRIVER;
   const isProd = e.NODE_ENV === 'production';
   if (isProd) {
     if (!e.PUBLIC_URL.startsWith('https://')) problems.push('PUBLIC_URL must be https in production');
@@ -198,7 +201,7 @@ export function parseConfig(source: Record<string, string | undefined>): Config 
     if (e.PORTAL_FAKE) problems.push('PORTAL_FAKE must be off in production');
     if (e.SCANNER === 'none' && !e.ALLOW_NO_SCANNER) problems.push('A malware scanner is required in production (SCANNER=clamav) unless ALLOW_NO_SCANNER=true');
     if (!e.SMTP_URL) problems.push('SMTP_URL is required in production');
-    if (e.STORAGE_DRIVER === 's3' && (!e.S3_BUCKET || !e.S3_ENDPOINT)) problems.push('S3_BUCKET and S3_ENDPOINT are required for the s3 storage driver');
+    if (storageDriver === 's3' && (!e.S3_BUCKET || !e.S3_ENDPOINT)) problems.push('S3_BUCKET and S3_ENDPOINT are required for the s3 storage driver');
     if (e.SIGNUP_ENABLED && !raw.PRIVACY_EMAIL) problems.push('PRIVACY_EMAIL is required in production when SIGNUP_ENABLED is on');
     if (e.SIGNUP_ENABLED && e.SIGNUP_MIN_MS < 600) problems.push('SIGNUP_MIN_MS must be at least 600 in production');
     if (e.SCRYPT_LOG_N < 15) problems.push('SCRYPT_LOG_N must be at least 15 in production');
@@ -233,7 +236,7 @@ export function parseConfig(source: Record<string, string | undefined>): Config 
     activeKeyId: e.ACTIVE_KEY_ID,
     blindIndexKeyId: e.BLIND_INDEX_KEY_ID,
     hashKeyId: e.HASH_KEY_ID ?? e.BLIND_INDEX_KEY_ID,
-    storageDriver: e.STORAGE_DRIVER,
+    storageDriver,
     storageDir: path.resolve(e.STORAGE_DIR),
     s3: { endpoint: e.S3_ENDPOINT, bucket: e.S3_BUCKET, region: e.S3_REGION, accessKeyId: e.S3_ACCESS_KEY_ID, secretAccessKey: e.S3_SECRET_ACCESS_KEY, forcePathStyle: e.S3_FORCE_PATH_STYLE },
     scanner: e.SCANNER,
