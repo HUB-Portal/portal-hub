@@ -7,7 +7,7 @@ export function LockedNotice({ what, tone = 'warn' }: { what: string; tone?: 'wa
     <Notice
       tone={tone}
       title="Not available until K Line approves your company"
-      action={<Link className="btn btn-sm" to="/portal#getting-started">See what is left</Link>}
+      action={<Link className="btn btn-sm" to="/portal/getting-started">See what is left</Link>}
     >
       You cannot {what} yet. K Line checks every new company first. You can still finish your company profile and read the production specification while you wait.
     </Notice>

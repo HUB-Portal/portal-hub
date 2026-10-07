@@ -20,7 +20,6 @@ const Verify = lazy(() => import('./pages/auth/Verify'));
 const Privacy = lazy(() => import('./pages/auth/Privacy'));
 const GettingStartedPublic = lazy(() => import('./pages/auth/GettingStartedPublic'));
 const GettingStartedPage = lazy(() => import('./pages/partner/GettingStartedPage'));
-const Overview = lazy(() => import('./pages/partner/Overview'));
 const Cases = lazy(() => import('./pages/partner/Cases'));
 const CaseDetail = lazy(() => import('./pages/partner/CaseDetail'));
 const Team = lazy(() => import('./pages/partner/Team'));
@@ -58,6 +57,13 @@ const client = new QueryClient({
   defaultOptions: { queries: { refetchOnWindowFocus: false, retry: 1, staleTime: 15_000 } },
 });
 
+/** The portal home is Direct manufacturing. People who cannot send cases land on their cases, or on the getting started steps. */
+function PortalHome() {
+  const { can } = useAuth();
+  if (can('case.write')) return <SendBulk />;
+  return <Navigate to={can('case.read') ? '/portal/cases' : '/portal/getting-started'} replace />;
+}
+
 function Root() {
   const { me, loading } = useAuth();
   if (loading) return <Spinner />;
@@ -81,10 +87,10 @@ function App() {
         <Route path="/getting-started" element={<GettingStartedPublic />} />
 
         <Route path="/portal" element={<Guard kind="partner"><Shell /></Guard>}>
-          <Route index element={<Overview />} />
+          <Route index element={<PortalHome />} />
           <Route path="getting-started" element={<GettingStartedPage />} />
-          <Route path="send" element={<Navigate to="/portal/send/bulk" replace />} />
-          <Route path="send/bulk" element={<Guard kind="partner" perm="case.write"><SendBulk /></Guard>} />
+          <Route path="send" element={<Navigate to="/portal" replace />} />
+          <Route path="send/bulk" element={<Navigate to="/portal" replace />} />
           <Route path="send/bulk/batch/:id" element={<Guard kind="partner" perm="case.read"><BatchResult /></Guard>} />
           <Route path="cases" element={<Guard kind="partner" perm="case.read"><Cases /></Guard>} />
           <Route path="cases/:id" element={<Guard kind="partner" perm="case.read"><CaseDetail /></Guard>} />

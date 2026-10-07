@@ -114,7 +114,7 @@ function Checklist() {
     <section className="gs-section" aria-labelledby="gs-list">
       <h2 id="gs-list">Your checklist</h2>
       {allDone ? (
-        <Notice tone="good" title="You are all set" action={can('case.write') ? <Link className="btn btn-sm btn-primary" to="/portal/send/bulk">Go to Direct manufacturing</Link> : undefined}>
+        <Notice tone="good" title="You are all set" action={can('case.write') ? <Link className="btn btn-sm btn-primary" to="/portal">Go to Direct manufacturing</Link> : undefined}>
           Every step is done. You can send your first cases with Direct manufacturing.
         </Notice>
       ) : null}

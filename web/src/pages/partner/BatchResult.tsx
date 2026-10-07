@@ -40,7 +40,7 @@ export default function BatchResult() {
 
   return (
     <div className="page">
-      <div><Link to="/portal/send/bulk" className="small">Back to direct manufacturing</Link></div>
+      <div><Link to="/portal" className="small">Back to direct manufacturing</Link></div>
       <PageHeader title="Batch result" subtitle="Where each case in this batch has got to." />
       {msg ? <Notice tone={msg.tone}>{msg.text}</Notice> : null}
       {q.isLoading ? <Spinner /> : null}

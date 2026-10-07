@@ -62,7 +62,7 @@ export default function Company() {
     <div className="page">
       <PageHeader title="Company profile" subtitle="The details K Line uses for agreements, shipping and quality. Keep them up to date." />
       {onboarding ? (
-        <Notice tone="info" title="Your company is waiting for K Line to approve it" action={<Link className="btn btn-sm" to="/portal#getting-started">Getting started</Link>}>
+        <Notice tone="info" title="Your company is waiting for K Line to approve it" action={<Link className="btn btn-sm" to="/portal/getting-started">Getting started</Link>}>
           You can finish your profile now. Sending cases, inviting people and sending materials unlock after approval.
         </Notice>
       ) : null}

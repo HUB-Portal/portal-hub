@@ -12,7 +12,7 @@ import { CASES_AT_ONCE, friendlyUploadError, pool, submitWhenClean, uploadCaseFi
 import type { OrgInfo } from '../../lib/types';
 import { Badge, Button, Card, Field, Notice, PageHeader, ProgressBar, Spinner, Toggle } from '../../ui/Common';
 import { DemoSamples } from '../../ui/DemoSamples';
-import { DropZone } from '../../ui/DropZone';
+import { AddMoreButtons, DropZone } from '../../ui/DropZone';
 import { FileMapTable } from '../../ui/FileMapTable';
 import { useBrands } from '../../lib/brands';
 import { useProfile, useUserCaseAddress } from '../../lib/orgApi';
@@ -37,6 +37,9 @@ const STAGE_TEXT: Record<Stage, string> = {
   needs_review: 'Saved as a draft. Needs your review', failed: 'Failed',
 };
 
+/** The brand and auto-submit options are hidden for now. The defaults apply: no brand, submit when all checks pass, warnings stay as drafts. */
+const SHOW_BATCH_OPTIONS = false;
+
 const ENTRY_ERRORS: Record<string, string> = {
   invalid_request: 'The details for this case were not accepted. Check the names.',
 };
@@ -52,6 +55,8 @@ export default function SendBulk() {
   const [phase, setPhase] = useState<'pick' | 'reading' | 'review' | 'running' | 'done'>('pick');
   const [rows, setRows] = useState<Row[]>([]);
   const [notes, setNotes] = useState<string[]>([]);
+  const [adding, setAdding] = useState(false);
+  const addCount = useRef(0);
   const sources = useRef<SourceMap>(new Map());
   const [brandId, setBrandId] = useState('');
   const [auto, setAuto] = useState(true);
@@ -66,23 +71,51 @@ export default function SendBulk() {
   // Direct manufacturing needs a case address: the sender's own when complete, otherwise the company's. The server also refuses (case_address_required), so the notice shows either way.
   const needsAddress = addressRefused || (myAddress.data ? myAddress.data.effective === 'none' : profile.data?.caseAddressComplete === false);
 
-  async function ingest(read: Promise<IntakeResult>) {
-    setPhase('reading');
+  /** `append` adds to the cases already on screen instead of replacing them. */
+  async function ingest(read: Promise<IntakeResult>, append = false) {
+    if (append) setAdding(true); else setPhase('reading');
     setFatal(null);
-    const r = await read;
-    setNotes(r.notes);
-    if (!r.files.length) { setPhase('pick'); if (!r.notes.length) setNotes(['No files were found. Try dropping a zip file or a folder.']); return; }
-    sources.current = sourceMapOf(r.files);
-    const built = buildBulkCases(r.files.map((f) => ({ path: f.path, size: f.size })));
-    const list: Row[] = await Promise.all(built.map(async (b) => {
-      const t = await readInstructionsFor(b.files as MapFile[], sources.current);
-      return {
-        key: b.key, folder: b.folder, firstName: b.firstName, lastName: b.lastName, needsReview: b.needsReview,
-        files: b.files.map((f) => ({ ...f })) as MapFile[], instructions: t.text, instructionNote: t.message,
-      };
-    }));
-    setRows(list);
-    setPhase('review');
+    try {
+      const r = await read;
+      const msgs = [...r.notes];
+      let files = r.files;
+      if (append) {
+        // The same file picked twice is skipped. A different file under the same path goes in as its own group so nothing is overwritten.
+        const fresh = files.filter((f) => sources.current.get(f.path)?.size !== f.size);
+        if (fresh.length < files.length) msgs.push(`${plural(files.length - fresh.length, 'file')} already in this batch ${files.length - fresh.length === 1 ? 'was' : 'were'} skipped.`);
+        files = fresh;
+        if (files.some((f) => sources.current.has(f.path))) {
+          addCount.current += 1;
+          const prefix = `Added ${addCount.current}/`;
+          files = files.map((f) => ({ ...f, path: `${prefix}${f.path}` }));
+        }
+      }
+      if (!files.length) {
+        if (append) setNotes(msgs.length ? msgs : ['No new files were found.']);
+        else { setPhase('pick'); setNotes(msgs.length ? msgs : ['No files were found. Try dropping a zip file or a folder.']); }
+        return;
+      }
+      setNotes(msgs);
+      const merged: SourceMap = append ? new Map(sources.current) : new Map();
+      for (const f of files) merged.set(f.path, f.source);
+      sources.current = merged;
+      const built = buildBulkCases(files.map((f) => ({ path: f.path, size: f.size })));
+      const taken = new Set(append ? rows.map((x) => x.key) : []);
+      const list: Row[] = await Promise.all(built.map(async (b) => {
+        const t = await readInstructionsFor(b.files as MapFile[], sources.current);
+        let key = b.key;
+        for (let n = 2; taken.has(key); n++) key = `${b.key} (added ${n})`;
+        taken.add(key);
+        return {
+          key, folder: b.folder, firstName: b.firstName, lastName: b.lastName, needsReview: b.needsReview,
+          files: b.files.map((f) => ({ ...f })) as MapFile[], instructions: t.text, instructionNote: t.message,
+        };
+      }));
+      setRows((rs) => (append ? [...rs, ...list] : list));
+      setPhase('review');
+    } finally {
+      setAdding(false);
+    }
   }
 
   const update = (key: string, patch: Partial<Row>) => setRows((rs) => rs.map((r) => (r.key === key ? { ...r, ...patch } : r)));
@@ -176,14 +209,14 @@ export default function SendBulk() {
     setPhase('done');
   }
 
-  function reset() { setRows([]); setRun({}); setNotes([]); setBatchId(null); sources.current = new Map(); setPhase('pick'); }
+  function reset() { addCount.current = 0; setRows([]); setRun({}); setNotes([]); setBatchId(null); sources.current = new Map(); setPhase('pick'); }
 
   return (
     <div className="page">
       <PageHeader title="Direct manufacturing" subtitle="This is how you send cases to K Line. Drop one zip file or folder with one folder per case, named with the patient's first and last name, for example Marc Alonso. You check every case before anything is sent." />
 
       {isLocked ? (
-        <Notice tone="warn" title="Sending is locked for now" action={<Link className="btn btn-sm" to="/portal">See what is left to do</Link>}>
+        <Notice tone="warn" title="Sending is locked for now" action={<Link className="btn btn-sm" to="/portal/getting-started">See what is left to do</Link>}>
           <Lock size={14} aria-hidden="true" /> K Line needs to approve your account first. You can check your folders here, but the cases cannot be sent yet.
         </Notice>
       ) : null}
@@ -212,6 +245,7 @@ export default function SendBulk() {
             First name and last name are needed for every case. Name order differs between clinics, so please check each one. Use Swap names if first and last are the wrong way round.
           </Notice>
 
+          {SHOW_BATCH_OPTIONS ? (
           <Card title="Options for this batch">
             <div className="form-grid">
               {brands.data && brands.data.length ? (
@@ -223,9 +257,14 @@ export default function SendBulk() {
             <Toggle checked={auto} onChange={setAuto} label="Submit automatically when all checks pass" hint="Cases with errors stay as drafts so you can review them." />
             {auto ? <Toggle checked={ack} onChange={setAck} label="Also submit cases that only have warnings" hint="You confirm you have read the warnings. Your confirmation is stored with each case." /> : null}
           </Card>
+          ) : null}
 
           <div className="stack">
-            <h2>{plural(rows.length, 'case')} found</h2>
+            <div className="row" style={{ justifyContent: 'space-between' }}>
+              <h2>{plural(rows.length, 'case')} found</h2>
+              <AddMoreButtons busy={adding} onList={(l) => { void ingest(readFileList(l), true); }} />
+            </div>
+            {adding ? <Spinner label="Reading your files" /> : null}
             {rows.map((r, i) => {
               const a = analysis[i]!;
               const bad = a.problems.length > 0;
