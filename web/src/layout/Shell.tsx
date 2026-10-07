@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react';
 import { Link, NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
+import { useQuery } from '@tanstack/react-query';
 import { Activity, Boxes, Building2, FileCheck2, Inbox, KeyRound, LayoutDashboard, ListChecks, LogOut, Menu, MapPin, Package, PlugZap, Rocket, ScrollText, ShieldAlert, ShieldCheck, Tag, Upload, UserCircle, UserCog, Users, Webhook, Workflow, X } from 'lucide-react';
+import { api } from '../lib/api';
 import { useAuth, useMenu } from '../lib/auth';
 import { useOrgLogo } from '../lib/orgApi';
 import { Button, Notice } from '../ui/Common';
@@ -15,7 +17,7 @@ export function BrandMark() {
   );
 }
 
-interface NavItem { to: string; label: string; icon: typeof Upload; end?: boolean; show: boolean }
+interface NavItem { to: string; label: string; icon: typeof Upload; end?: boolean; show: boolean; badge?: number }
 
 export function Shell() {
   const { me, can, isKline, signOut } = useAuth();
@@ -27,6 +29,14 @@ export function Shell() {
   const logo = useOrgLogo(!isKline && can('org.read'));
   const showLogo = !isKline && logo.hasLogo === true && can('org.read');
   const onCompanyPage = loc.pathname.startsWith('/portal/company');
+  // Companies that confirmed their email address and wait for a K Line administrator to approve them.
+  const pending = useQuery({
+    queryKey: ['partners', 'review-count'],
+    queryFn: () => api<{ items: { newSignup?: boolean; emailNotConfirmed?: boolean }[] }>('/api/partners?tab=review'),
+    enabled: isKline && can('admin.partners'),
+    refetchInterval: 60_000,
+  });
+  const pendingCount = pending.data?.items.filter((p) => p.newSignup && !p.emailNotConfirmed).length ?? 0;
 
   const partnerItems: NavItem[] = [
     { to: '/portal', label: 'Overview', icon: LayoutDashboard, end: true, show: true },
@@ -51,7 +61,7 @@ export function Shell() {
     { to: '/console/claims', label: 'Quality claims', icon: ShieldAlert, show: can('claim.read') },
     { to: '/console/specs', label: 'Partner specs', icon: FileCheck2, show: can('spec.read') },
     { to: '/console/materials', label: 'Partner materials', icon: Boxes, show: can('material.read') },
-    { to: '/console/partners', label: 'Partners', icon: Building2, show: can('admin.partners') },
+    { to: '/console/partners', label: 'Partners', icon: Building2, show: can('admin.partners'), badge: pendingCount },
     { to: '/console/mes', label: 'MES integration', icon: Workflow, show: can('admin.mes') },
     { to: '/console/service-keys', label: 'Service keys', icon: KeyRound, show: can('admin.mes') },
     { to: '/console/staff', label: 'Staff', icon: UserCog, show: can('admin.staff') },
@@ -79,6 +89,7 @@ export function Shell() {
             <NavLink key={i.to} to={i.to} end={i.end}>
               <i.icon size={18} aria-hidden="true" />
               {i.label}
+              {i.badge ? <span className="nav-badge" aria-label={`${i.badge} waiting for review`}>{i.badge > 99 ? '99+' : i.badge}</span> : null}
             </NavLink>
           ))}
         </nav>
