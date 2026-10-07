@@ -568,7 +568,8 @@ describe('packaging, checks, dates and geography', () => {
   it('validates bulk entries', () => {
     const ok = validateBulkEntry({ key: 'k', patientId: '55813', firstName: 'Marc', lastName: 'Alonso' });
     expect(ok).toMatchObject({ ok: true, patientId: '55813' });
-    expect(validateBulkEntry({ key: 'k', patientId: '', firstName: 'a', lastName: 'b' })).toMatchObject({ ok: false, error: 'patient_id_required' });
+    expect(validateBulkEntry({ key: 'k', firstName: 'a', lastName: 'b' })).toMatchObject({ ok: true, patientId: null }); // the patient ID is optional now
+    expect(validateBulkEntry({ key: 'k', patientId: '', firstName: 'a', lastName: 'b' })).toMatchObject({ ok: true, patientId: null });
     expect(validateBulkEntry({ key: 'k', patientId: '1', firstName: '', lastName: 'b' })).toMatchObject({ ok: false, error: 'first_name_required' });
     expect(validateBulkEntry({ key: 'k', patientId: '1', firstName: 'a', lastName: '  ' })).toMatchObject({ ok: false, error: 'last_name_required' });
     expect(validateBulkEntry({ key: 'k', patientId: '1', firstName: 'a'.repeat(51), lastName: 'b' })).toMatchObject({ ok: false, error: 'name_too_long' });

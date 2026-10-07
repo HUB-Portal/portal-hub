@@ -1,5 +1,5 @@
 // Direct manufacturing bulk intake: read the mandatory patient data from case folder names.
-// Folder name pattern: "<patient id> <first name> <last name>", for example "55813 Marc Alonso".
+// Folder name pattern: "<first name> <last name>", for example "Marc Alonso". A leading number (an old patient ID) is ignored.
 // Product type does not appear in the zip and is ignored.
 
 import { CaseGroup, MappedFile, caseProblems, groupCases, InputFile, findCaseIdToken } from './filenames';
@@ -58,7 +58,6 @@ export function parseBulkFolderName(folderName: string): BulkFolderName {
     lastName = words[0]!; // the API only strictly needs the last name
     needsReview = true;
   }
-  if (!patientId) problems.push('No patient ID found in the folder name.');
   if (!lastName) problems.push('No patient last name found in the folder name.');
   if (!firstName) problems.push('No patient first name found in the folder name.');
   return { patientId, firstName, lastName, needsReview, problems };
@@ -72,7 +71,6 @@ export interface BulkCase {
   /** Stable key for the review screen (folder path). */
   key: string;
   folder: string;
-  patientId: string;
   firstName: string;
   lastName: string;
   needsReview: boolean;
@@ -83,9 +81,8 @@ export interface BulkCase {
   problems: string[];
 }
 
-export function validateBulkCase(c: Pick<BulkCase, 'patientId' | 'firstName' | 'lastName' | 'files'>): string[] {
+export function validateBulkCase(c: Pick<BulkCase, 'firstName' | 'lastName' | 'files'>): string[] {
   const out: string[] = [];
-  if (!c.patientId.trim()) out.push('Patient ID is missing.');
   if (!c.firstName.trim()) out.push('Patient first name is missing.');
   if (!c.lastName.trim()) out.push('Patient last name is missing.');
   if (c.firstName.length > NAME_MAX) out.push(`First name is longer than ${NAME_MAX} characters.`);
@@ -96,11 +93,9 @@ export function validateBulkCase(c: Pick<BulkCase, 'patientId' | 'firstName' | '
 
 function fromGroup(g: CaseGroup): BulkCase {
   const parsed = parseBulkFolderName(g.nameFolder || g.caseId);
-  const patientId = parsed.patientId ?? '';
   const c: BulkCase = {
     key: g.folder || g.caseId,
     folder: g.folder,
-    patientId,
     firstName: parsed.firstName,
     lastName: parsed.lastName,
     needsReview: parsed.needsReview,

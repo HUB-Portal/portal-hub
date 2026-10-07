@@ -57,11 +57,10 @@ export default function BatchResult() {
           <Card title="Cases" actions={failed.length && can('case.write') ? <Button size="sm" loading={retry.isPending} onClick={() => { void retryAll(); }}><RefreshCw size={14} aria-hidden="true" /> Try all failed again</Button> : null}>
             <div className="table-wrap">
               <table className="table">
-                <thead><tr><th>Patient ID</th><th>Reference</th><th>Case status</th><th>Checks</th><th>Customer portal</th><th><span className="sr-only">Actions</span></th></tr></thead>
+                <thead><tr><th>Reference</th><th>Case status</th><th>Checks</th><th>Customer portal</th><th><span className="sr-only">Actions</span></th></tr></thead>
                 <tbody>
                   {cases.map((c) => (
                     <tr key={c.id}>
-                      <td><strong>{c.caseId}</strong></td>
                       <td className="link-cell nowrap"><Link to={`/portal/cases/${c.id}`}>{c.ref}</Link></td>
                       <td><StatusBadge c={c} /></td>
                       <td><CaseChecks c={c} /></td>
@@ -70,7 +69,7 @@ export default function BatchResult() {
                         {c.portal.status === 'failed' && c.portal.lastError ? <div className="small muted" style={{ maxWidth: 300 }}>{c.portal.lastError}</div> : null}
                       </td>
                       <td className="right">
-                        {c.portal.status === 'failed' && can('case.write') ? <Button size="sm" onClick={() => retry.mutate(c.id)} aria-label={`Try sending ${c.caseId} again`}>Try again</Button> : null}
+                        {c.portal.status === 'failed' && can('case.write') ? <Button size="sm" onClick={() => retry.mutate(c.id)} aria-label={`Try sending ${c.ref} again`}>Try again</Button> : null}
                         {c.status === 'draft' ? <Link className="btn btn-sm" to={`/portal/cases/${c.id}`}>Review</Link> : null}
                       </td>
                     </tr>

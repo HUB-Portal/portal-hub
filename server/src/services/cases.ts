@@ -498,7 +498,6 @@ export async function patchCase(ctx: DbCtx, a: AuthContext, id: string, input: P
     }
     const finalCaseId = newCaseId !== undefined ? newCaseId : row.partner_case_id;
     if (!finalCaseId && !hasName) throw badRequest('A case needs a case ID or a patient name.', 'identifier_required');
-    if (direct && !finalCaseId) throw badRequest('Direct manufacturing cases need a patient ID.', 'identifier_required');
 
     let instructionsChanged = false;
     if (input.instructions !== undefined) {

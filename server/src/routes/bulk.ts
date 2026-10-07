@@ -21,7 +21,7 @@ export async function bulkRoutes(app: FastifyInstance): Promise<void> {
           .array(
             z.object({
               key: z.string().min(1).max(500),
-              patientId: z.string().max(300),
+              patientId: z.string().max(300).nullish(), // optional and no longer asked for; kept so older clients still work
               firstName: z.string().max(300),
               lastName: z.string().max(300),
               instructions: z.string().max(20000).nullish(),

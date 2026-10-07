@@ -111,16 +111,15 @@ You send cases in the Hub with **Direct manufacturing**. K Line makes them throu
 
 You need these details for every case:
 
-* **Patient ID**, for example `55813`.
 * **First name** and **last name** of the patient. They are stored encrypted and hidden on screen.
-* A folder per case, named like `55813 Marc Alonso` (ID, first name, last name).
+* A folder per case, named like `Marc Alonso` (first name, last name). A number in front of the name is ignored.
 
 ### Direct manufacturing, step by step
 
-1. Put one folder per patient in a zip (or drop the folders). Name each folder `<patient ID> <first name> <last name>`, for example `55813 Marc Alonso`. Inside you can have `STL`, `PTS` and `CSV` sub folders, PDFs, photos and other documents. Do not put the product type in the zip. It is not used (clear aligners are assumed). One zip can be up to 2 GB with up to 5,000 files. Your browser reads it. Nothing is sent yet.
+1. Put one folder per patient in a zip (or drop the folders). Name each folder `<first name> <last name>`, for example `Marc Alonso`. Inside you can have `STL`, `PTS` and `CSV` sub folders, PDFs, photos and other documents. Do not put the product type in the zip. It is not used (clear aligners are assumed). One zip can be up to 2 GB with up to 5,000 files. Your browser reads it. Nothing is sent yet.
 2. Open **Direct manufacturing** and drop the zip or folder.
-3. On the review screen, check every row. The Hub shows the patient ID, first name and last name it found. Names in different orders are common, so use **Swap names** when they are the wrong way round. A folder name with a comma, such as `Alonso, Marc`, is read as last name first. Three or more words are split as first name then the rest, and the row is marked for review. A copy ending such as `(2)` is removed.
-4. A case is blocked until the patient ID, first name and last name are all there. The patient ID must not have been used for another direct case, and names can be at most 50 characters. You can change the patient ID (letters, digits, spaces and `_ . / # -`) and the names in the row.
+3. On the review screen, check every row. The Hub shows the first name and last name it found. Names in different orders are common, so use **Swap names** when they are the wrong way round. A folder name with a comma, such as `Alonso, Marc`, is read as last name first. Three or more words are split as first name then the rest, and the row is marked for review. A copy ending such as `(2)` is removed.
+4. A case is blocked until the first name and last name are both there. Names can be at most 50 characters. You can change the names in the row.
 5. Open a row to check its files. Each STL (3D model) and PTS (trim line) needs an arch (upper or lower) and a step. Fix any that the Hub could not read. You can switch a file off. Instructions are read from a text or Word file (`.txt`, `.md`, `.rtf`, `.docx`) in the folder, and you can edit them. At most 8,000 characters. Old `.doc` files are not read.
 6. Set the brand, then start. The Hub creates the cases, uploads the files and checks them. Keep the page open. If the connection drops, it carries on where it stopped. With the automatic option it submits the clean cases. Cases with problems stay drafts for your review.
 7. Watch **Batch result** for each case. The Hub then sends each submitted case to the K Line customer portal. If that fails you see an error with a **Retry** action. If the portal connection is not set up (**Portal connection**, for administrators) the push fails with a clear message.
@@ -135,7 +134,7 @@ Nothing is silently corrected. If the Hub finds something odd, it tells you and 
 
 The Hub groups files into cases by folder. Use one folder per case. These sub folders never become cases: `Upper`, `Lower`, `Maxilla`, `Mandible`, `Oberkiefer`, `Unterkiefer`, `OK`, `UK`, `UJ`, `LJ`, `U`, `L`, `Steps`, `Stages`, `Subsetups`, `Setups`, `Aligners`, `Trays`, `Models`, `STL`, `PTS`, `CSV`, `Trim lines`, `Cut lines`, `Templates`, `Attachments`, `Exports`, `Files`, `3D`, `Scans`, `Prints`, `Output`, `Results`, `Photos`, `Images`, `Pictures`, `Documents`, `Docs`, `Reports`, `Prescriptions`, `Rx`, `Instructions`, `Notes`, `PDFs`, `Other`, `Misc`, `Extras` (also followed by a number).
 
-**Patient ID.** The Hub uses the first number of 4 or more digits in the folder name that is not a year or a date. `55813 Marc Alonso` gives patient ID `55813`. If there is no such number, the cleaned folder name is used and you are asked to check it.
+**Numbers in folder names.** Direct manufacturing does not use a patient ID. A number of 4 or more digits at the start of the folder name (for example `55813 Marc Alonso`) is ignored when the names are read.
 
 **Arch.** Upper: `upper`, `maxilla`, `oberkiefer`, `superior`, `U`, `UP`, `OK`, `SUP`, `MAX`, `MX`, `UJ`, `TOP`. Lower: `lower`, `mandible`, `unterkiefer`, `inferior`, `L`, `LOW`, `UK`, `INF`, `MAND`, `MD`, `LJ`, `BOTTOM`. Note that `UK` means lower (Unterkiefer) and `OK` means upper (Oberkiefer).
 
@@ -271,7 +270,7 @@ Administrators (and finance for exports) find **ERP and API** in the menu. Every
 * **API keys.** Create a key for each system. Choose only the scopes it needs: read cases, write cases, read patient names (think twice: this exposes names), read claims, read materials. You can limit a key to certain IP addresses and set an expiry of up to 730 days. The key is shown once. Copy it straight into your secret store. You can have 20 active keys. Revoke a key at any time.
 * **Webhooks.** Add the web address your system listens on (it must be `https`) and choose the events. The Hub signs each message so you can check it is genuine. The secret is shown once. Use **Send test** to check your endpoint. Failed messages are retried over about a day, and a webhook that keeps failing is switched off and you are told. The delivery history shows what was sent.
 * **Exports.** Download `cases.csv` and `shipments.csv` for a period. Patient names are left out unless you tick the box, which needs the right permission and a fresh authenticator code. The export is then logged as a bulk name reveal.
-* Webhook messages never contain patient names, notes, reasons or file names. They carry references and counts. For a direct manufacturing case the case ID in a message is the patient ID, so treat it as personal data in your own logs.
+* Webhook messages never contain patient names, notes, reasons or file names. They carry references and counts. For a direct manufacturing case created without a case ID, the case ID in a message is empty; if you sent one, treat it as personal data in your own logs.
 
 ## Account and security
 

@@ -112,7 +112,7 @@ describe('bulk direct manufacturing folder names', () => {
   });
   it('reports missing mandatory data', () => {
     expect(parseBulkFolderName('55813').problems).toHaveLength(2);
-    expect(parseBulkFolderName('Marc Alonso').problems).toEqual(['No patient ID found in the folder name.']);
+    expect(parseBulkFolderName('Marc Alonso')).toMatchObject({ firstName: 'Marc', lastName: 'Alonso', problems: [] }); // no patient ID needed
   });
   it('swaps names', () => {
     expect(swapNames({ firstName: 'Kowalski', lastName: 'Jan' })).toEqual({ firstName: 'Jan', lastName: 'Kowalski' });
@@ -121,11 +121,11 @@ describe('bulk direct manufacturing folder names', () => {
     const files = [...sampleCase('90001 Kowalski Jan (2)', '90001', 'z.zip/'), f('z.zip/55813 Marc Alonso/STL/55813_U01.stl'), f('z.zip/55813 Marc Alonso/plan.pdf'), f('z.zip/55813 Marc Alonso/notes.txt')];
     const cases = buildBulkCases(files);
     expect(cases).toHaveLength(2);
-    const marc = cases.find((c) => c.patientId === '55813')!;
+    const marc = cases.find((c) => c.firstName === 'Marc')!;
     expect(marc).toMatchObject({ firstName: 'Marc', lastName: 'Alonso' });
     expect(marc.documents.map((d) => d.name)).toEqual(['plan.pdf']);
     expect(marc.instructionFiles.map((d) => d.name)).toEqual(['notes.txt']);
-    const other = cases.find((c) => c.patientId === '90001')!;
+    const other = cases.find((c) => c.firstName === 'Kowalski')!;
     expect(other.documents.every((d) => d.kind === 'csv')).toBe(true);
     expect(validateBulkCase({ ...marc, firstName: '' })).toContain('Patient first name is missing.');
   });

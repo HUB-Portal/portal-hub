@@ -18,7 +18,7 @@ export function DemoSamples() {
     <Card title="Try it with sample folders" className="demo-samples">
       <p>
         The download is a zip file with four made up cases: folders with upper and lower arch subfolders, a case with flat files, a folder named after a patient, and a case with an open trim line.
-        The case numbers are fictional and new each time you download. Each folder is named with a made up patient ID, first name and last name, for example 50121 Marc Alonso, so the names are filled in on the check screen.
+        The case numbers are fictional and new each time you download. Each folder is named with a made up number, first name and last name, for example 50121 Marc Alonso. The number is ignored and the names are filled in on the check screen.
       </p>
       <div className="row">
         <a className="btn" href="/api/demo/sample-cases.zip" download>
