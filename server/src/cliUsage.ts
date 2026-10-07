@@ -5,6 +5,8 @@ export const CLI_USAGE = `Usage: cli <command>
   create-admin --email E --name N [--google]
                                   create a K Line administrator and print a one time invite link
                                   (--google: the person signs in with Google Workspace, no password or link)
+  create-user --email E --name N --org CODE --role R[,R] [--password P]
+                                  create a user with a password, no invite link and no email (a random password is printed if none is given)
   gen-key [--id ID]               print a new master key to add to MASTER_KEYS
   audit-verify                    verify the audit log hash chain
   audit-trim --months N           remove audit entries older than N months
