@@ -110,6 +110,7 @@ export function requireScope(auth: AuthContext, scope: string): void {
 
 /** Sensitive actions need an authenticator code within the last STEP_UP_MINUTES. */
 export function requireStepUp(auth: AuthContext): void {
+  if (!config.mfaRequired && auth.kind === 'user') return; // MFA_REQUIRED=false: there are no authenticator codes to ask for
   if (auth.kind !== 'user' || !auth.stepUpAt || Date.now() - new Date(auth.stepUpAt).getTime() > config.stepUpMinutes * 60_000) {
     throw stepUpRequired();
   }

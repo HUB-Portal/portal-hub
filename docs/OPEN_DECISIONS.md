@@ -125,3 +125,5 @@ These rows are in the development database (`kph`), not in the test database. Th
 * Disabled QA users.
 * A brand that was renamed to "QA test brand (unused)".
 * A suspended partner "QA Partner QA-1".
+
+* **7 Oct 2026, owner request: two factor sign in can be switched off for now.** `MFA_REQUIRED=false` (default `true`) removes the authenticator step for everyone and the step up code for sensitive actions. Fixed decision 4 stays the default and must be restored (remove the variable) before real use with patient data.

@@ -49,7 +49,7 @@ export default function Login() {
   }
 
   return (
-    <AuthLayout title="Sign in" intro="Use your work email address and password. You will be asked for a code from your authenticator app next.">
+    <AuthLayout title="Sign in" intro={config.data?.mfaRequired === false ? 'Use your work email address and password.' : 'Use your work email address and password. You will be asked for a code from your authenticator app next.'}>
       <form onSubmit={submit} className="stack" noValidate>
         {googleFailed && !error ? <Notice tone="bad">We could not sign you in with Google. Use your email and password, or ask an administrator to check your account.</Notice> : null}
         {error ? <Notice tone="bad">{error}</Notice> : null}

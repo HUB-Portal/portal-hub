@@ -5,7 +5,7 @@ import { audit } from '../audit';
 import { SYSTEM, tx, one, type PoolClient } from '../db';
 import { dbCtx, getAuth, guard, type AuthContext } from '../auth/context';
 import {
-  clearSessionCookie, clearUserMfaFailures, createSession, isUserLocked, listSessions, markStepUp, promoteSession, recordMfaFailure, recordUserMfaFailure,
+  clearSessionCookie, clearUserMfaFailures, createSession, isUserLocked, listSessions, loginStage, markStepUp, promoteSession, recordMfaFailure, recordUserMfaFailure,
   revokeSession, revokeUserSessions, setSessionCookie,
 } from '../auth/sessions';
 import { decryptField, encryptField, fieldAad } from '../crypto/keys';
@@ -60,7 +60,7 @@ async function meBody(a: AuthContext, req: FastifyRequest) {
     user: { id: a.userId, email: a.email, name: a.name, roles: a.roles, mfaEnabled: extra.u?.mfa_enabled ?? false, recoveryCodesRemaining: extra.u?.recovery ?? 0 },
     org: extra.org ? { id: extra.org.id, kind: extra.org.kind, name: extra.org.name, code: extra.org.code, status: extra.org.status, country: extra.org.country } : null,
     permissions: full ? [...a.permissions].sort() : [],
-    stepUp: { valid: !!a.stepUpAt && Date.now() - new Date(a.stepUpAt).getTime() <= config.stepUpMinutes * 60_000, minutes: config.stepUpMinutes },
+    stepUp: { valid: !config.mfaRequired || (!!a.stepUpAt && Date.now() - new Date(a.stepUpAt).getTime() <= config.stepUpMinutes * 60_000), minutes: config.stepUpMinutes },
     demo,
   };
 }
@@ -166,13 +166,17 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
       throw unauthorized(GENERIC_LOGIN, 'invalid_credentials');
     }
 
-    const stage = user.mfa_enabled ? 'password' : 'mfa_setup';
+    const stage = loginStage(user.mfa_enabled);
     const previous = req.auth?.sessionId ?? null;
     const s = await tx(SYSTEM, async (c) => {
       if (previous) await revokeSession(c, previous, 'replaced');
       await c.query('UPDATE users SET failed_logins = 0, lockout_count = 0, locked_until = NULL WHERE id = $1', [user.id]);
       const created = await createSession(c, { userId: user.id, orgId: user.org_id, stage, ip: clientIp(req), userAgent: userAgent(req) });
       await audit(c, { actorType: 'user', actorId: user.id, orgId: user.org_id, action: 'auth.password_ok', ip: clientIp(req), userAgent: userAgent(req), details: { stage } });
+      if (stage === 'full') {
+        await c.query('UPDATE users SET last_login_at = now() WHERE id = $1', [user.id]);
+        await audit(c, { actorType: 'user', actorId: user.id, orgId: user.org_id, action: 'auth.login', ip: clientIp(req), userAgent: userAgent(req), details: { method: 'password', mfa: 'not_required' } });
+      }
       return created;
     });
     setSessionCookie(reply, s.token, s.expiresAt);
@@ -420,7 +424,7 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
     const problem = checkPasswordPolicy(body.password, { email: t.email, name: t.name });
     if (problem) throw badRequest(problem, 'weak_password');
     const hash = await hashPassword(body.password);
-    const stage = t.mfa ? 'password' : 'mfa_setup';
+    const stage = loginStage(t.mfa);
     const s = await tx(SYSTEM, async (c) => {
       if (!(await consumeUserToken(c, t.id))) throw badRequest('This invitation is not valid or has expired. Ask for a new one.', 'invalid_token');
       await c.query('UPDATE users SET password_hash = $2, password_changed_at = now(), failed_logins = 0, updated_at = now() WHERE id = $1', [t.userId, hash]);

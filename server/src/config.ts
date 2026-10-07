@@ -78,6 +78,11 @@ const schema = z.object({
    * is always asked. The variable is accepted only as true (or left out). Any other value stops the server from starting.
    */
   OIDC_REQUIRE_LOCAL_MFA: z.string().optional(),
+  // Two factor sign in is on unless this is explicitly set to false, 0, no or off (any other value, a typo included, keeps it on). Temporary switch: see docs/SECURITY.md.
+  MFA_REQUIRED: z
+    .string()
+    .optional()
+    .transform((v) => !(v !== undefined && ['false', '0', 'no', 'off'].includes(v.trim().toLowerCase()))),
   /** Discovery document. Only tests and proxies change this; it must be https in production. */
   OIDC_GOOGLE_DISCOVERY_URL: z.string().url().default('https://accounts.google.com/.well-known/openid-configuration'),
 });
@@ -109,6 +114,8 @@ export interface Config {
   stepUpMinutes: number;
   scryptLogN: number;
   signupEnabled: boolean;
+  /** False = people sign in with their password (or Google) only, no authenticator code. Default true. */
+  mfaRequired: boolean;
   signupDailyLimit: number;
   /** Minimum time (ms) of every registration answer. */
   signupMinMs: number;
@@ -248,6 +255,7 @@ export function parseConfig(source: Record<string, string | undefined>): Config 
     stepUpMinutes: e.STEP_UP_MINUTES,
     scryptLogN: e.SCRYPT_LOG_N,
     signupEnabled: e.SIGNUP_ENABLED,
+    mfaRequired: e.MFA_REQUIRED,
     signupDailyLimit: e.SIGNUP_DAILY_LIMIT,
     signupMinMs: e.SIGNUP_MIN_MS,
     supportEmail: e.SUPPORT_EMAIL,
