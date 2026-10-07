@@ -228,15 +228,11 @@ export type SubmitOutcome =
   | { outcome: 'locked' }
   | { outcome: 'failed'; reason: string };
 
-/** Submit a case only when its checks are clean (or its warnings are acknowledged). */
-export async function submitWhenClean(caseUuid: string, acknowledgeWarnings: boolean, signal?: AbortSignal): Promise<SubmitOutcome> {
+/** Submit a case. Check errors and warnings do not block a submission. */
+export async function submitWhenClean(caseUuid: string, signal?: AbortSignal): Promise<SubmitOutcome> {
   try {
-    const detail = await api<{ case: CaseItem }>(`/api/cases/${caseUuid}`, { signal });
-    const c = detail.case;
-    if (c.checks.errors.length) return { outcome: 'needs_review', reason: 'Some checks found errors.' };
-    if (c.checks.warnings.length && !acknowledgeWarnings) return { outcome: 'needs_review', reason: 'Some checks found warnings to confirm.' };
     const res = await api<{ case?: CaseItem; status?: string }>(`/api/cases/${caseUuid}/submit`, {
-      method: 'POST', body: { acknowledgeWarnings: acknowledgeWarnings && c.checks.warnings.length > 0 }, signal,
+      method: 'POST', body: { acknowledgeWarnings: true }, signal,
     });
     return { outcome: 'submitted', status: res?.case?.status ?? res?.status ?? 'submitted' };
   } catch (e) {
@@ -244,8 +240,6 @@ export async function submitWhenClean(caseUuid: string, acknowledgeWarnings: boo
     if (e instanceof ApiError) {
       if (e.code === 'org_not_approved') return { outcome: 'locked' };
       if (e.code === 'case_address_required') return { outcome: 'needs_review', reason: CASE_ADDRESS_REQUIRED_TEXT };
-      if (e.code === 'checks_failed') return { outcome: 'needs_review', reason: 'Some checks found errors.' };
-      if (e.code === 'warnings_need_confirmation') return { outcome: 'needs_review', reason: 'Some checks found warnings to confirm.' };
       return { outcome: 'failed', reason: e.message };
     }
     return { outcome: 'failed', reason: 'The case could not be submitted.' };

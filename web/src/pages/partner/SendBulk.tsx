@@ -58,7 +58,6 @@ export default function SendBulk() {
   const [brandId, setBrandId] = useState('');
   const [priority, setPriority] = useState<'normal' | 'rush'>('normal');
   const [auto, setAuto] = useState(true);
-  const [ack, setAck] = useState(false);
   const [run, setRun] = useState<Record<string, RunState>>({});
   const [batchId, setBatchId] = useState<string | null>(null);
   const [fatal, setFatal] = useState<string | null>(null);
@@ -173,7 +172,7 @@ export default function SendBulk() {
           return;
         }
         if (!auto) { patch(r.key, { stage: 'needs_review', message: 'Saved as a draft, as you asked.' }); return; }
-        const s = await submitWhenClean(caseUuid, ack, ctrl.signal);
+        const s = await submitWhenClean(caseUuid, ctrl.signal);
         if (s.outcome === 'submitted') patch(r.key, { stage: 'submitted' });
         else if (s.outcome === 'needs_review') patch(r.key, { stage: 'needs_review', message: s.reason });
         else if (s.outcome === 'locked') patch(r.key, { stage: 'needs_review', message: 'Submitting is locked until your account is approved.' });
@@ -232,8 +231,7 @@ export default function SendBulk() {
                 {(p) => <select {...p} value={priority} onChange={(e) => setPriority(e.target.value as 'normal' | 'rush')}><option value="normal">Normal</option><option value="rush">Rush</option></select>}
               </Field>
             </div>
-            <Toggle checked={auto} onChange={setAuto} label="Submit automatically when all checks pass" hint="Cases with errors stay as drafts so you can review them." />
-            {auto ? <Toggle checked={ack} onChange={setAck} label="Also submit cases that only have warnings" hint="You confirm you have read the warnings. Your confirmation is stored with each case." /> : null}
+            <Toggle checked={auto} onChange={setAuto} label="Submit automatically" hint="Turn this off to keep every case as a draft." />
           </Card>
 
           <div className="stack">

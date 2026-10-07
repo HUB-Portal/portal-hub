@@ -511,13 +511,6 @@ describe('API v1: cases, files and submit', () => {
   });
 
   it('submits the case and moves it along', async () => {
-    const empty = await api(app, rw, 'POST', '/api/v1/cases', { case_id: uid() });
-    const bad = await api(app, rw, 'POST', `/api/v1/cases/${empty.json.ref}/submit`, {});
-    expect(bad.status).toBe(409);
-    expect(bad.json.code).toBe('checks_failed');
-    expect(bad.json.errors[0]).toMatchObject({ code: 'no_stl' });
-    expect(bad.json.errors[0]).not.toHaveProperty('fileId');
-
     const ok = await api(app, rw, 'POST', `/api/v1/cases/${caseRef}/submit`, {});
     expect(ok.status, JSON.stringify(ok.json)).toBe(200);
     expect(ok.json).toMatchObject({ ref: caseRef, status: 'ready', simple_status: 'submitted', site: 'PT-CHV' });
@@ -535,7 +528,7 @@ describe('API v1: cases, files and submit', () => {
     expect(log[0].actor_type).toBe('api_key');
   });
 
-  it('asks for acknowledgement of warnings, in snake_case', async () => {
+  it('submits with warnings, which are reported in snake_case and stored when acknowledged', async () => {
     // U01 without its trim line is fine, but a missing step warns: upload U01 and U03
     const c = await api(app, rw, 'POST', '/api/v1/cases', { case_id: uid() });
     for (const name of ['U01.stl', 'U03.stl']) {
@@ -545,11 +538,9 @@ describe('API v1: cases, files and submit', () => {
       await api(app, rw, 'POST', `/api/uploads/${reg.json.file_id}/complete`, {});
     }
     await drain();
-    const w = await api(app, rw, 'POST', `/api/v1/cases/${c.json.ref}/submit`, {});
-    expect(w.status).toBe(409);
-    expect(w.json.code).toBe('warnings_need_confirmation');
-    expect(w.json.warnings.map((x: any) => x.code)).toContain('missing_steps');
-    for (const x of w.json.warnings) expect(Object.keys(x).every((k) => !/[A-Z]/.test(k))).toBe(true);
+    const pre = await api(app, rw, 'GET', `/api/v1/cases/${c.json.ref}`);
+    expect(pre.json.checks.warnings.map((x: any) => x.code)).toContain('missing_steps');
+    for (const x of pre.json.checks.warnings) expect(Object.keys(x).every((k) => !/[A-Z]/.test(k))).toBe(true);
     const ok = await api(app, rw, 'POST', `/api/v1/cases/${c.json.ref}/submit`, { acknowledge_warnings: true });
     expect(ok.status, JSON.stringify(ok.json)).toBe(200);
     expect(ok.json.warnings_acknowledged).toBe(true);

@@ -4,7 +4,7 @@ import { audit } from '../audit';
 import { SYSTEM, many, one, tx, type DbCtx, type PoolClient } from '../db';
 import { keyCanSeePatients } from '../http/patientFields';
 import { blindIndex, blindIndexes, decryptField, encryptField, fieldAad } from '../crypto/keys';
-import { AppError, badRequest, conflict, forbidden, notFound } from '../http/errors';
+import { badRequest, conflict, forbidden, notFound } from '../http/errors';
 import { enqueue, registerJob } from '../jobs';
 import { notifyOrg } from './notify';
 import { assertCaseAddress, orgUploadState } from './org';
@@ -591,11 +591,8 @@ export async function submitCase(ctx: DbCtx, a: AuthContext, id: string, opts: {
     // Early gate for direct manufacturing cases: the case address is sent to the portal, so a missing one is reported now.
     if (row.manufacturing_mode === 'direct') await assertCaseAddress(c, row.org_id, row.created_by ?? null);
 
+    // Checks are still recomputed and stored on the case, but errors and warnings no longer block a submission.
     const checks = await recomputeCase(c, id);
-    if (checks && checks.errors.length) throw new AppError(409, 'checks_failed', 'Fix the problems with this case before submitting it.', { errors: checks.errors });
-    if (checks && checks.warnings.length && !opts.acknowledgeWarnings) {
-      throw new AppError(409, 'warnings_need_confirmation', 'There are warnings. Please read and confirm them to continue.', { warnings: checks.warnings });
-    }
 
     const { manual, site, slaDays } = await resolveRouting(c, row.org_id, true, { direct: row.manufacturing_mode === 'direct' });
 

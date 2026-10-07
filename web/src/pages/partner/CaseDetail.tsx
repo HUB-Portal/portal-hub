@@ -14,7 +14,6 @@ import { CLAIMABLE_CASE_STATUSES, REPLACEABLE_CASE_STATUSES, alignerName, aligne
 import type { CaseChild, CaseClaimRef, CaseDetail as CaseDetailData, CaseEvent, CaseFile, CaseItem, Issue, Routing } from '../../lib/types';
 import { Badge, Button, Card, Dialog, Field, IssueList, Notice, PageHeader, ProgressBar, Spinner, Toggle } from '../../ui/Common';
 import { Stepper } from '../../ui/Stepper';
-import { StlViewer } from '../../viewer/StlViewer';
 import { HoldDialog, ReleaseDialog, RouteDialog, StageDialog } from '../console/caseActions';
 import { AlignerPicker } from './ClaimNew';
 
@@ -68,7 +67,6 @@ export default function CaseDetail({ staff = false }: { staff?: boolean }) {
       return busy ? 3000 : false;
     },
   });
-  const [selected, setSelected] = useState<string | null>(null);
   const [notice, setNotice] = useState<{ tone: 'good' | 'bad' | 'warn'; text: string } | null>(null);
   const [dialog, setDialog] = useState<'submit' | 'cancel' | 'delete' | 'route' | 'hold' | 'release' | 'stage' | 'replace' | 'erase' | null>(null);
   const [mapFile, setMapFile] = useState<CaseFile | null>(null);
@@ -79,7 +77,6 @@ export default function CaseDetail({ staff = false }: { staff?: boolean }) {
   const files = data?.files ?? [];
   const { rows, unmapped } = useMemo(() => buildManifest(files), [files]);
   const others = files.filter((f) => f.kind !== 'stl' && f.kind !== 'pts');
-  const sel = rows.find((r) => r.key === selected) ?? rows.find((r) => r.model?.state === 'ready') ?? rows[0];
   const filesEditable = !staff && !!c && (c.status === 'draft' || c.status === 'on_hold') && can('case.write');
 
   const refresh = () => { for (const k of ['case', 'console-case', 'cases', 'console-cases', 'intake', 'console-overview']) qc.invalidateQueries({ queryKey: [k] }); };
@@ -226,24 +223,12 @@ export default function CaseDetail({ staff = false }: { staff?: boolean }) {
 
       <RelatedCard c={c} kids={data!.children} claims={showClaims ? data!.claims : []} staff={staff} />
 
-      <div className="grid-2">
-        <Card title="Checks">
-          {c.checks.errors.length === 0 && c.checks.warnings.length === 0 ? <Notice tone="good">All checks passed.</Notice> : null}
-          {c.checks.errors.length ? <><h3>Errors</h3><p className="small muted">These stop the case from being submitted.</p><IssueList tone="bad" items={c.checks.errors} /></> : null}
-          {c.checks.warnings.length ? <><h3>Warnings</h3><p className="small muted">{c.status === 'draft' || c.status === 'on_hold' ? 'You can submit, but you must confirm you have read them.' : 'You confirmed these warnings when the case was submitted. They do not stop production.'}{c.status === 'draft' || c.status === 'on_hold' ? (c.warningsAcknowledged ? ' You confirmed them already.' : '') : ''}</p><IssueList tone="warn" items={c.checks.warnings} /></> : null}
-        </Card>
-        <FactsCard c={c} staff={staff} routing={routing} />
-      </div>
+      <FactsCard c={c} staff={staff} routing={routing} />
 
       <Card title="Aligners" actions={filesEditable ? <AddFilesButtons caseId={c.id} onDone={refresh} /> : null}>
         {rows.length === 0 && unmapped.length === 0 ? <p className="muted">No models yet.{filesEditable ? ' Add files to get started.' : ''}</p> : null}
         {rows.length ? (
           <>
-            <StlViewer
-              label={sel ? `3D view of ${archLabel(sel.arch)} ${stepLabel(sel.step, sel.template)}` : '3D view'}
-              modelUrl={sel?.model && sel.model.state === 'ready' ? `/api/files/${sel.model.id}/content` : null}
-              ptsUrl={sel?.pts && sel.pts.state === 'ready' ? `/api/files/${sel.pts.id}/content` : null}
-            />
             {(['upper', 'lower'] as const).map((arch) => {
               const list = rows.filter((r) => r.arch === arch);
               if (!list.length) return null;
@@ -252,14 +237,13 @@ export default function CaseDetail({ staff = false }: { staff?: boolean }) {
                   <h3>{archLabel(arch)} arch, {formatNumber(list.filter((r) => !r.template).length)} steps</h3>
                   <div className="table-wrap">
                     <table className="table">
-                      <thead><tr><th>Step</th><th>Model</th><th>Trim line</th><th><span className="sr-only">Actions</span></th></tr></thead>
+                      <thead><tr><th>Step</th><th>Model</th><th>Trim line</th></tr></thead>
                       <tbody>
                         {list.map((r) => (
-                          <tr key={r.key} className={r.key === sel?.key ? 'selected' : undefined}>
+                          <tr key={r.key}>
                             <td className="nowrap"><strong>{stepLabel(r.step, r.template)}</strong></td>
                             <td><FileCell f={r.model} c={c} missing="Missing" onEdit={filesEditable ? setMapFile : undefined} /></td>
                             <td><FileCell f={r.pts} c={c} missing={r.model ? 'Missing' : 'None'} warnMissing={!!r.model} onEdit={filesEditable ? setMapFile : undefined} /></td>
-                            <td className="right"><Button size="sm" disabled={!r.model} onClick={() => setSelected(r.key)} aria-pressed={r.key === sel?.key} aria-label={`View ${archLabel(arch)} ${stepLabel(r.step, r.template)} in 3D`}><Eye size={14} aria-hidden="true" /> View</Button></td>
                           </tr>
                         ))}
                       </tbody>
@@ -562,13 +546,10 @@ function EraseDialog({ open, c, followUps, onClose, onDone }: { open: boolean; c
 }
 
 function SubmitDialog({ open, c, onClose, onDone }: { open: boolean; c: CaseItem; onClose: () => void; onDone: (text: string) => void }) {
-  const [ack, setAck] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  useEffect(() => { if (open) { setAck(false); setError(null); } }, [open]);
-  const hasErrors = c.checks.errors.length > 0;
-  const hasWarnings = c.checks.warnings.length > 0;
+  useEffect(() => { if (open) setError(null); }, [open]);
   const m = useMutation({
-    mutationFn: () => api(`/api/cases/${c.id}/submit`, { method: 'POST', body: { acknowledgeWarnings: hasWarnings && ack } }),
+    mutationFn: () => api(`/api/cases/${c.id}/submit`, { method: 'POST', body: { acknowledgeWarnings: true } }),
     onSuccess: () => onDone(c.manufacturingMode === 'direct' ? 'The case was submitted. We are sending it to the customer portal.' : 'The case was submitted.'),
     onError: (e) => setError(e instanceof ApiError && e.code === 'org_not_approved' ? 'Uploads and submissions are locked until K Line approves your account.' : e instanceof ApiError && e.code === 'transfer_blocked' ? 'This case cannot be produced at any site allowed for your organisation. Contact K Line.' : errorText(e)),
   });
@@ -578,19 +559,11 @@ function SubmitDialog({ open, c, onClose, onDone }: { open: boolean; c: CaseItem
       title="Submit this case"
       onClose={onClose}
       wide
-      footer={<><Button onClick={onClose}>Not yet</Button><Button variant="primary" loading={m.isPending} disabled={hasErrors || (hasWarnings && !ack)} onClick={() => { setError(null); m.mutate(); }}>Submit case</Button></>}
+      footer={<><Button onClick={onClose}>Not yet</Button><Button variant="primary" loading={m.isPending} onClick={() => { setError(null); m.mutate(); }}>Submit case</Button></>}
     >
       <div className="stack">
         {error ? <Notice tone="bad">{error}</Notice> : null}
-        {hasErrors ? <><Notice tone="bad" title="Fix these errors first" /><IssueList tone="bad" items={c.checks.errors} /></> : null}
-        {hasWarnings ? (
-          <>
-            <Notice tone="warn" title="These warnings need your confirmation" />
-            <IssueList tone="warn" items={c.checks.warnings} />
-            <Toggle checked={ack} onChange={setAck} label="I have read the warnings and want to submit anyway" hint="Your confirmation is stored with the case." />
-          </>
-        ) : null}
-        {!hasErrors && !hasWarnings ? <p>All checks passed. Once submitted, K Line can start work on this case.</p> : null}
+        <p>Once submitted, K Line can start work on this case.</p>
       </div>
     </Dialog>
   );

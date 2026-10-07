@@ -200,10 +200,6 @@ describe('upload, checks and submit', () => {
     const dupe = await up.uploadFile(caseA.id, 'copy_of_model_U01.stl', cubeStl(60));
     let d = await up.call('GET', `/api/cases/${caseA.id}`);
     expect(d.json.case.checks.errors.map((e: any) => e.code)).toContain('duplicate_file');
-    const sub = await up.call('POST', `/api/cases/${caseA.id}/submit`, { acknowledgeWarnings: true });
-    expect(sub.status).toBe(409);
-    expect(sub.json.code).toBe('checks_failed');
-    expect(sub.json.errors.length).toBeGreaterThan(0);
     // the same model as a template for step 1 is its own slot
     const fixed = await up.call('PATCH', `/api/files/${dupe.fileId}`, { arch: 'upper', step: 1, template: true });
     expect(fixed.status).toBe(200);
@@ -281,11 +277,9 @@ describe('upload, checks and submit', () => {
     await up.call('DELETE', `/api/cases/${c.id}`);
   });
 
-  it('needs confirmation of warnings, stores it, routes to the default site and sets the due date', async () => {
-    const noAck = await up.call('POST', `/api/cases/${caseA.id}/submit`, {});
-    expect(noAck.status).toBe(409);
-    expect(noAck.json.code).toBe('warnings_need_confirmation');
-    expect(noAck.json.warnings.map((w: any) => w.code)).toContain('stl_units');
+  it('stores the warnings confirmation, routes to the default site and sets the due date', async () => {
+    const pre = await up.call('GET', `/api/cases/${caseA.id}`);
+    expect(pre.json.case.checks.warnings.map((w: any) => w.code)).toContain('stl_units');
     const ok = await up.call('POST', `/api/cases/${caseA.id}/submit`, { acknowledgeWarnings: true });
     expect(ok.status, JSON.stringify(ok.json)).toBe(200);
     expect(ok.json.case).toMatchObject({ status: 'ready', siteCode: 'PT-CHV', warningsAcknowledged: true });
