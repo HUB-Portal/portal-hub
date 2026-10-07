@@ -67,19 +67,12 @@ export async function createBatch(
       [a.orgId, a.userId, !!input.submitWhenClean, input.priority ?? 'normal'],
     );
     const batchId = batch!.id;
-    const existing = new Set(
-      (await many<{ pid: string }>(c, `SELECT lower(partner_case_id) AS pid FROM cases WHERE org_id = $1 AND manufacturing_mode = 'direct' AND cancelled_at IS NULL AND partner_case_id IS NOT NULL`, [a.orgId])).map((r) => r.pid),
-    );
     const results: BulkEntryResult[] = [];
     let created = 0;
     for (const e of input.cases) {
       const v = validateBulkEntry(e);
       if (!v.ok) {
         results.push({ key: e.key, error: v.error, message: v.message });
-        continue;
-      }
-      if (existing.has(v.patientId.toLowerCase())) {
-        results.push({ key: e.key, error: 'duplicate_patient_id', message: 'A direct manufacturing case with this patient ID already exists.' });
         continue;
       }
       await c.query('SAVEPOINT bulk_entry');
@@ -89,13 +82,12 @@ export async function createBatch(
           instructions: e.instructions || null, batchId,
         });
         await c.query('RELEASE SAVEPOINT bulk_entry');
-        existing.add(v.patientId.toLowerCase());
         created++;
         results.push({ key: e.key, id: r.id, ref: r.ref, caseId: v.patientId });
       } catch (err: any) {
         await c.query('ROLLBACK TO SAVEPOINT bulk_entry');
         if (err instanceof AppError) {
-          results.push({ key: e.key, error: err.code === 'case_id_exists' ? 'duplicate_patient_id' : err.code, message: err.message });
+          results.push({ key: e.key, error: err.code, message: err.message });
           continue;
         }
         throw err;

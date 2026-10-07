@@ -66,7 +66,6 @@ describe('direct manufacturing bulk intake', () => {
         { key: 'd', patientId: '70002', firstName: 'Nolast', lastName: '   ' },
         { key: 'e', patientId: '', firstName: 'No', lastName: 'Id' },
         { key: 'f', patientId: '70003', firstName: 'x'.repeat(51), lastName: 'Long' },
-        { key: 'g', patientId: '55813', firstName: 'Marc', lastName: 'Again' },
         { key: 'h', patientId: 'bad<id>', firstName: 'Bad', lastName: 'Id' },
       ],
       priority: 'rush',
@@ -81,7 +80,6 @@ describe('direct manufacturing bulk intake', () => {
     expect(byKey.d.error).toBe('last_name_required');
     expect(byKey.e.error).toBe('patient_id_required');
     expect(byKey.f.error).toBe('name_too_long');
-    expect(byKey.g.error).toBe('duplicate_patient_id');
     expect(byKey.h.error).toBe('invalid_patient_id');
     expect(byKey.c.id).toBeUndefined();
     ids = { a: byKey.a.id, b: byKey.b.id };
@@ -96,13 +94,14 @@ describe('direct manufacturing bulk intake', () => {
     expect(JSON.stringify(row)).not.toMatch(/Marc|Alonso/);
     expect(row).toMatchObject({ partner_case_id: '55813', manufacturing_mode: 'direct', priority: 'rush' });
 
-    // a second batch cannot reuse the patient ID; a cancelled case frees it
-    const dup = await up.call('POST', '/api/bulk/batches', { cases: [{ key: 'z', patientId: '55813', firstName: 'Other', lastName: 'Person' }] });
-    expect(dup.status).toBe(200);
-    expect(dup.json.batchId).toBeNull();
-    expect(dup.json.cases[0].error).toBe('duplicate_patient_id');
-    const dupCase = await up.call('POST', '/api/cases', { caseId: '55813' });
-    expect(dupCase.json.code).toBe('case_id_exists'); // the case ID index covers standard cases as well
+    // a second batch may reuse the patient ID of a direct case; standard cases keep their unique case ID
+    const again = await up.call('POST', '/api/bulk/batches', { cases: [{ key: 'z', patientId: '55813', firstName: 'Other', lastName: 'Person' }] });
+    expect(again.status, JSON.stringify(again.json)).toBe(201);
+    expect(again.json.cases[0].id).toBeTruthy();
+    const std = await up.call('POST', '/api/cases', { caseId: 'STD-DUP' });
+    expect(std.status).toBe(201);
+    const dupStd = await up.call('POST', '/api/cases', { caseId: 'STD-DUP' });
+    expect(dupStd.json.code).toBe('case_id_exists');
   });
 
   it('shows the batch, masked names, the portal block, and finds cases by name in either order', async () => {
@@ -118,7 +117,7 @@ describe('direct manufacturing bulk intake', () => {
       // "ALONSO, Marc" normalises to the same letters as "Alonso Marc"
       expect(s.json.items.map((c: any) => c.id), term).toEqual([ids.a]);
     }
-    expect((await up.call('GET', '/api/cases?mode=direct')).json.total).toBe(2);
+    expect((await up.call('GET', '/api/cases?mode=direct')).json.total).toBe(3); // two from the first batch and the repeated patient ID from the second
     const reveal = await up.call('POST', `/api/cases/${ids.a}/reveal-name`, {});
     expect(reveal.json).toEqual({ patientName: 'Marc Alonso', firstName: 'Marc', lastName: 'Alonso' });
     // patient ID and names of direct cases can be corrected while in draft
