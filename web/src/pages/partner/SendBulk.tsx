@@ -39,7 +39,6 @@ const STAGE_TEXT: Record<Stage, string> = {
 };
 
 const ENTRY_ERRORS: Record<string, string> = {
-  duplicate_patient_id: 'This patient ID is already used for a direct manufacturing case.',
   invalid_request: 'The details for this case were not accepted. Check the patient ID and names.',
 };
 
@@ -56,7 +55,6 @@ export default function SendBulk() {
   const [notes, setNotes] = useState<string[]>([]);
   const sources = useRef<SourceMap>(new Map());
   const [brandId, setBrandId] = useState('');
-  const [priority, setPriority] = useState<'normal' | 'rush'>('normal');
   const [auto, setAuto] = useState(true);
   const [ack, setAck] = useState(false);
   const [run, setRun] = useState<Record<string, RunState>>({});
@@ -91,14 +89,11 @@ export default function SendBulk() {
   const update = (key: string, patch: Partial<Row>) => setRows((rs) => rs.map((r) => (r.key === key ? { ...r, ...patch } : r)));
 
   const analysis = useMemo(() => {
-    const ids = new Map<string, number>();
-    for (const r of rows) if (r.patientId.trim()) ids.set(r.patientId.trim().toLowerCase(), (ids.get(r.patientId.trim().toLowerCase()) ?? 0) + 1);
     return rows.map((r) => {
       const act = activeFiles(r.files);
       const problems = [...validateBulkCase({ patientId: r.patientId, firstName: r.firstName, lastName: r.lastName, files: act })];
       const idBad = r.patientId.trim() ? caseIdProblems(r.patientId) : null;
       if (idBad) problems.push(idBad.replace('case ID', 'patient ID'));
-      if (r.patientId.trim() && (ids.get(r.patientId.trim().toLowerCase()) ?? 0) > 1) problems.push('Another folder here has the same patient ID.');
       if (act.length && act.filter((f) => f.kind === 'stl').length === 0) problems.push('No 3D models (STL) found.');
       problems.push(...mappingProblems(r.files));
       const sum = fileSummary(r.files);
@@ -132,7 +127,6 @@ export default function SendBulk() {
             ...(r.instructions.trim() ? { instructions: r.instructions.slice(0, INSTRUCTIONS_MAX) } : {}),
           })),
           ...(brandId ? { brandId } : {}),
-          priority,
         },
       });
     } catch (e) {
@@ -228,9 +222,6 @@ export default function SendBulk() {
                   {(p) => <select {...p} value={brandId} onChange={(e) => setBrandId(e.target.value)}><option value="">No brand</option>{brands.data!.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}</select>}
                 </Field>
               ) : null}
-              <Field label="Priority">
-                {(p) => <select {...p} value={priority} onChange={(e) => setPriority(e.target.value as 'normal' | 'rush')}><option value="normal">Normal</option><option value="rush">Rush</option></select>}
-              </Field>
             </div>
             <Toggle checked={auto} onChange={setAuto} label="Submit automatically when all checks pass" hint="Cases with errors stay as drafts so you can review them." />
             {auto ? <Toggle checked={ack} onChange={setAck} label="Also submit cases that only have warnings" hint="You confirm you have read the warnings. Your confirmation is stored with each case." /> : null}
