@@ -5,6 +5,12 @@ import { randomToken, sha256Hex } from '../crypto/tokens';
 
 export type SessionStage = 'password' | 'mfa_setup' | 'full';
 
+/** The stage a session gets once the first factor (password, Google, invitation or confirmation link) is accepted. With MFA_REQUIRED=false there is no second step. */
+export function loginStage(mfaEnabled: boolean): SessionStage {
+  if (!config.mfaRequired) return 'full';
+  return mfaEnabled ? 'password' : 'mfa_setup';
+}
+
 export interface LoadedSession {
   id: string;
   orgId: string;

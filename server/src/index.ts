@@ -6,6 +6,8 @@ import { closePools } from './db';
 const app = await buildApp();
 await app.listen({ host: config.host, port: config.port });
 
+if (!config.mfaRequired) app.log.warn('MFA_REQUIRED=false: two factor sign in is OFF. Anyone with a password (or Google) gets a full session. Turn it back on before real use.');
+
 const worker = config.runWorker ? startWorker({ log: (m) => app.log.error(m) }) : null;
 if (worker) app.log.info('worker running inside the API process');
 

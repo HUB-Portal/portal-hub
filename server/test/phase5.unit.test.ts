@@ -205,6 +205,14 @@ describe('configuration', () => {
     expect(parseConfig({ ...base, SIGNUP_ENABLED: 'true', PRIVACY_EMAIL: 'privacy@hub.example' }).signupEnabled).toBe(true);
     expect(parseConfig(base).signupEnabled).toBe(false);
   });
+  it('two factor sign in is on unless MFA_REQUIRED is explicitly turned off', () => {
+    expect(parseConfig(base).mfaRequired).toBe(true);
+    expect(parseConfig({ ...base, MFA_REQUIRED: 'true' }).mfaRequired).toBe(true);
+    expect(parseConfig({ ...base, MFA_REQUIRED: 'false' }).mfaRequired).toBe(false);
+    expect(parseConfig({ ...base, MFA_REQUIRED: 'off' }).mfaRequired).toBe(false);
+    // a typo never turns it off
+    expect(parseConfig({ ...base, MFA_REQUIRED: 'flase' }).mfaRequired).toBe(true);
+  });
   it('registration answers take 600 ms by default and the ceiling defaults to 100', () => {
     const c = parseConfig({ ...base, SIGNUP_ENABLED: 'true', PRIVACY_EMAIL: 'p@x.example' });
     expect(c.signupMinMs).toBe(600);

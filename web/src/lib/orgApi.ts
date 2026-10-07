@@ -22,7 +22,7 @@ export const agreementLabel = (k: string) => AGREEMENT_KINDS.find((a) => a.id ==
 
 // ---- public configuration ---------------------------------------------------------------------------------------
 
-export interface PublicConfig { privacyEmail: string | null; supportEmail: string | null; signupEnabled: boolean; privacyVersion: string; googleSignIn: boolean }
+export interface PublicConfig { privacyEmail: string | null; supportEmail: string | null; signupEnabled: boolean; privacyVersion: string; googleSignIn: boolean; mfaRequired: boolean }
 
 export function usePublicConfig() {
   return useQuery({
@@ -35,6 +35,7 @@ export function usePublicConfig() {
         signupEnabled: r.signupEnabled !== false,
         privacyVersion: r.privacyVersion ?? PRIVACY_VERSION,
         googleSignIn: r.googleSignIn === true,
+        mfaRequired: r.mfaRequired !== false,
       };
     },
     retry: false,

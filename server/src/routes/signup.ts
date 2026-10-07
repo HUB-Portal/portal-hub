@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { config } from '../config';
 import { audit } from '../audit';
 import { SYSTEM, one, tx } from '../db';
-import { createSession, revokeUserSessions, setSessionCookie } from '../auth/sessions';
+import { createSession, loginStage, revokeUserSessions, setSessionCookie } from '../auth/sessions';
 import { checkPasswordPolicy, hashPassword } from '../crypto/password';
 import { csrfFor } from '../crypto/tokens';
 import { badRequest, forbidden } from '../http/errors';
@@ -24,6 +24,7 @@ export async function signupRoutes(app: FastifyInstance): Promise<void> {
     signupEnabled: config.signupEnabled,
     privacyVersion: PRIVACY_VERSION,
     googleSignIn: config.oidc.googleEnabled,
+    mfaRequired: config.mfaRequired,
   }));
 
   // ---------------------------------------------------------------- register
@@ -84,7 +85,7 @@ export async function signupRoutes(app: FastifyInstance): Promise<void> {
     const problem = checkPasswordPolicy(body.password, { email: t.email, name: t.name });
     if (problem) throw badRequest(problem, 'weak_password');
     const hash = await hashPassword(body.password);
-    const stage = t.mfa ? 'password' : 'mfa_setup';
+    const stage = loginStage(t.mfa);
     const s = await tx(SYSTEM, async (c) => {
       if (!(await consumeUserToken(c, t.id))) throw badRequest(INVALID_LINK, 'invalid_token');
       await c.query('UPDATE users SET password_hash = $2, password_changed_at = now(), failed_logins = 0, updated_at = now() WHERE id = $1', [t.userId, hash]);

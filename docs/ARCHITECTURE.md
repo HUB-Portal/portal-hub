@@ -251,6 +251,7 @@ Read from the environment and validated by zod in `server/src/config.ts`. In dev
 | `LOG_LEVEL` | `info` (`silent` in tests) | Log level. |
 | `OIDC_GOOGLE_CLIENT_ID`, `OIDC_GOOGLE_CLIENT_SECRET` | none | Both together switch on Google sign in for K Line staff. |
 | `OIDC_ALLOWED_DOMAIN` | none | Workspace domain (for example `example.com`) that staff accounts must belong to. Required when Google sign in is on. |
+| `MFA_REQUIRED` | `true` | Two factor sign in. Set `false` to switch it off for now (password or Google alone gives a full session, no authenticator setup, no step up code). Logged as a warning at start. |
 | `OIDC_REQUIRE_LOCAL_MFA` | `true` | Cannot be turned off. Google is only the first factor and the authenticator code is always required (two factor sign in for everyone). Any value but `true` stops the server from starting. |
 | `OIDC_GOOGLE_DISCOVERY_URL` | Google's discovery document | Only tests and proxies change it. Must be https in production. |
 | `JOB_CONCURRENCY` | `4` | Read directly by the worker. Between 1 and 8. |
