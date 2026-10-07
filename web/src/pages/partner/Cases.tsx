@@ -110,7 +110,7 @@ export default function Cases() {
       <PageHeader
         title="Cases"
         subtitle="Every case your organisation has sent to K Line."
-        actions={can('case.write') ? <Link className="btn btn-primary" to="/portal/send/bulk">Send cases</Link> : undefined}
+        actions={can('case.write') ? <Link className="btn btn-primary" to="/portal">Send cases</Link> : undefined}
       />
       <Card>
         <div className="toolbar">
@@ -127,7 +127,7 @@ export default function Cases() {
         {q.isError ? <Notice tone="bad" action={<Button size="sm" onClick={() => q.refetch()}>Try again</Button>}>{errorText(q.error)}</Notice> : null}
         {q.isLoading ? <Spinner /> : null}
         {q.data && q.data.items.length === 0 ? (
-          <Empty title="No cases found" action={can('case.write') ? <Link className="btn" to="/portal/send/bulk">Send your first cases</Link> : undefined}>
+          <Empty title="No cases found" action={can('case.write') ? <Link className="btn" to="/portal">Send your first cases</Link> : undefined}>
             {urlSearch || status ? 'Try a different search or filter.' : 'Cases you send will appear here.'}
           </Empty>
         ) : null}

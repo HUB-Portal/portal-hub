@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Link, NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
-import { Activity, Boxes, Building2, FileCheck2, Inbox, KeyRound, LayoutDashboard, ListChecks, LogOut, Menu, MapPin, Package, PlugZap, Rocket, ScrollText, ShieldAlert, ShieldCheck, Tag, Upload, UserCircle, UserCog, Users, Webhook, Workflow, X } from 'lucide-react';
+import { Activity, Boxes, Building2, FileCheck2, Inbox, KeyRound, ListChecks, LogOut, Menu, MapPin, Package, PlugZap, Rocket, ScrollText, ShieldAlert, ShieldCheck, Tag, Upload, UserCircle, UserCog, Users, Webhook, Workflow, X } from 'lucide-react';
 import { useAuth, useMenu } from '../lib/auth';
 import { useOrgLogo } from '../lib/orgApi';
 import { Button, Notice } from '../ui/Common';
@@ -29,9 +29,8 @@ export function Shell() {
   const onCompanyPage = loc.pathname.startsWith('/portal/company');
 
   const partnerItems: NavItem[] = [
-    { to: '/portal', label: 'Overview', icon: LayoutDashboard, end: true, show: true },
+    { to: '/portal', label: 'Direct manufacturing', icon: Package, end: true, show: can('case.write') },
     { to: '/portal/getting-started', label: 'Getting started', icon: Rocket, show: true },
-    { to: '/portal/send/bulk', label: 'Direct manufacturing', icon: Package, show: can('case.write') },
     { to: '/portal/cases', label: 'Cases', icon: ListChecks, show: can('case.read') },
     { to: '/portal/claims', label: 'Quality claims', icon: ShieldAlert, show: can('claim.read') && menu.claims },
     { to: '/portal/spec', label: 'Production spec', icon: FileCheck2, show: can('spec.read') && menu.spec },
