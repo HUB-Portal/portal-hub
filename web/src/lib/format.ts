@@ -118,13 +118,9 @@ export function portalTone(s: string, demo = false): Tone {
  * action for the partner, unless the case address is missing.
  */
 export function caseStatus(c: { status: string; manufacturingMode?: string; stageLabel?: string | null; checks: { errors: unknown[]; warnings: unknown[] }; portal: { status: string; actionNeeded?: string; demo?: boolean } }): { text: string; tone: Tone; next: string | null } {
-  const errors = c.checks.errors.length;
-  const warnings = c.checks.warnings.length;
   const direct = c.manufacturingMode === 'direct';
   switch (c.status) {
     case 'draft':
-      if (errors) return { text: `Draft, ${errors} ${errors === 1 ? 'error' : 'errors'}`, tone: 'bad', next: 'Open the case and fix the errors' };
-      if (warnings) return { text: `Draft, ${warnings} ${warnings === 1 ? 'warning' : 'warnings'}`, tone: 'warn', next: 'Read the warnings, then send' };
       return { text: 'Draft, ready to send', tone: 'info', next: 'Send to K Line' };
     case 'on_hold':
       return { text: 'On hold', tone: 'warn', next: 'Fix what K Line asked for, then send again' };
@@ -135,7 +131,7 @@ export function caseStatus(c: { status: string; manufacturingMode?: string; stag
       if (direct && c.portal.status === 'failed') {
         return c.portal.actionNeeded === 'case_address'
           ? { text: 'Waiting for your case address', tone: 'warn', next: 'Add your case address' }
-          : { text: 'Delayed on our side', tone: 'info', next: 'No action needed' };
+          : { text: 'Problem on our side', tone: 'info', next: 'We are fixing it, no action needed' };
       }
       if (direct && c.portal.status === 'pushed') return { text: 'Received, K Line is processing', tone: 'good', next: null };
       return { text: direct ? 'Received, sending to K Line' : 'Submitted', tone: 'info', next: null };

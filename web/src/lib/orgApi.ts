@@ -43,7 +43,7 @@ export function usePublicConfig() {
   }));
 }
 
-export interface CaseCounts { all: number; attention: number; drafts: number; draftsWithErrors: number }
+export interface CaseCounts { all: number; attention: number; drafts: number }
 
 /** Counts for the filter chips, the Cases menu badge and the link on Direct manufacturing. Refreshes now and then, and when the cases change. */
 export function useCaseCounts(enabled: () => boolean = () => true) {

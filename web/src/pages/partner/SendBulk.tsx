@@ -112,9 +112,6 @@ export default function SendBulk() {
         <SendBar
           ready={uploader.ready.length}
           sendable={uploader.sendable.length}
-          withWarnings={uploader.ready.filter((r) => r.serverWarnings).length}
-          ack={uploader.ack}
-          onAck={uploader.setAck}
           working={uploader.working}
           allSent={uploader.finished === uploader.rows.length}
           blocked={blocked()}

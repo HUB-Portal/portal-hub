@@ -37,20 +37,15 @@ function Facts(props: { a: CardAnalysis }) {
   );
 }
 
-/** The badge that says where the card is. A card held back by problems reads "Needs attention" whatever its stage. */
-function StageBadge(props: { row: Row; heldBack: boolean }) {
+/** The badge that says where the card is. */
+function StageBadge(props: { row: Row }) {
   const done = () => props.row.stage === 'uploaded' || props.row.stage === 'sent';
   const problem = () => props.row.stage === 'failed' || props.row.stage === 'attention';
   return (
-    <Show
-      when={!props.heldBack}
-      fallback={<Badge tone="warn"><CircleAlert size={12} aria-hidden="true" /> Needs attention</Badge>}
-    >
-      <Badge tone={stageTone(props.row.stage)}>
-        {done() ? <CheckCircle2 size={12} aria-hidden="true" /> : problem() ? <CircleAlert size={12} aria-hidden="true" /> : null}
-        {stageText(props.row.stage)}
-      </Badge>
-    </Show>
+    <Badge tone={stageTone(props.row.stage)}>
+      {done() ? <CheckCircle2 size={12} aria-hidden="true" /> : problem() ? <CircleAlert size={12} aria-hidden="true" /> : null}
+      {stageText(props.row.stage)}
+    </Badge>
   );
 }
 
@@ -72,7 +67,6 @@ function Notes(props: { row: Row; a: CardAnalysis; busy: boolean }) {
   return (
     <>
       <Show when={noTrim() && (props.row.stage === 'uploaded' || props.row.stage === 'queued' || props.busy)}><p class="soft-warning">No trim lines found. K Line can still make this case, but the trim lines are normally sent too.</p></Show>
-      <Show when={props.row.stage === 'uploaded' && props.row.serverWarnings}><p class="soft-warning">The checks gave {plural(props.row.serverWarnings!, 'warning')}. <A href={`/portal/cases/${props.row.caseUuid}`}>Read {props.row.serverWarnings === 1 ? 'it' : 'them'}</A> before you send.</p></Show>
       <Show when={props.row.instructionNote}><p class="small muted">{props.row.instructionNote}</p></Show>
     </>
   );
@@ -115,13 +109,13 @@ export function BulkCaseCard(props: { row: Row; analysis: CardAnalysis; index: n
         <Show when={props.row.ref}><span class="muted small">{props.row.ref}</span></Show>
         <Facts a={props.analysis} />
         <span class="grow" />
-        <StageBadge row={props.row} heldBack={heldBack()} />
+        <StageBadge row={props.row} />
       </div>
       <div class="small muted">From {props.row.folder || 'loose files'}</div>
 
       <Show when={busy() || props.row.stage === 'sending'}><Progress row={props.row} total={props.analysis.sum.bytes} /></Show>
       <Show when={props.row.stage === 'queued' && !heldBack()}><p class="small muted">{props.blocked ? 'Waiting. Uploads start once the notice above is dealt with.' : 'Waiting for its turn. Two cases upload at a time.'}</p></Show>
-      <Show when={heldBack()}><ul class="problem-list"><For each={props.analysis.problems}>{(p) => <li>{p}</li>}</For></ul></Show>
+      <Show when={heldBack()}><ul class="problem-list" role="alert"><For each={props.analysis.problems}>{(p) => <li>{p}</li>}</For></ul></Show>
       <Show when={props.row.message}><p class={props.row.stage === 'failed' || props.row.stage === 'attention' ? 'field-error' : 'small muted'} role="status">{props.row.message}</p></Show>
       <Notes row={props.row} a={props.analysis} busy={busy()} />
 

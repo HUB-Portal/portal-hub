@@ -3,7 +3,7 @@
 import { buildBulkCases, NAME_MAX } from '@shared/bulk';
 import { CASE_ID_ALPHABET, CASE_ID_MAX } from '@shared/filenames';
 import { INSTRUCTIONS_MAX } from './instructions';
-import { activeFiles, caseIdProblems, mappingProblems, readInstructionsFor, type MapFile, type SourceMap } from './review';
+import { activeFiles, caseIdProblems, readInstructionsFor, type MapFile, type SourceMap } from './review';
 import type { SourceFile } from './source';
 
 /**
@@ -38,8 +38,6 @@ export interface Row {
   message?: string;
   /** Files that did not upload or did not pass the checks, by path, for a retry. */
   failedKeys?: string[];
-  /** Warnings the server's checks gave the uploaded case. */
-  serverWarnings?: number;
   /** What the server holds, so only a real change is sent. */
   synced?: CaseDetails;
   nameError?: string;
@@ -68,13 +66,12 @@ export const stageTone = (s: Stage): StageTone => STAGE_TONE[s];
 export const clean = (s: string): string => s.replace(/\s+/g, ' ').trim();
 export const nameOf = (r: Pick<Row, 'firstName' | 'lastName'>): string => [clean(r.firstName), clean(r.lastName)].filter(Boolean).join(' ');
 
-/** Why a card cannot start uploading yet. Empty means it can. The patient ID and the names are optional, but must be well formed when given. */
+/**
+ * Why a card cannot start uploading yet. Empty means it can. Nothing about the files holds a card back (no arch, step, model or trim line
+ * is needed: decision of 8 Oct 2026). The patient ID and the names are optional, but must be well formed when given.
+ */
 export function problemsOf(r: Row): string[] {
-  const act = activeFiles(r.files);
   const out: string[] = [];
-  if (act.length === 0) out.push('This folder has no files to send.');
-  else if (act.filter((f) => f.kind === 'stl').length === 0) out.push('No 3D models (STL) found.');
-  out.push(...mappingProblems(r.files));
   if (r.firstName.length > NAME_MAX) out.push(`First name is longer than ${NAME_MAX} characters.`);
   if (r.lastName.length > NAME_MAX) out.push(`Last name is longer than ${NAME_MAX} characters.`);
   const id = r.patientId.trim();
@@ -87,6 +84,9 @@ export function problemsOf(r: Row): string[] {
   }
   return out;
 }
+
+/** True when the card has at least one file that is sent (folders with nothing to send are left out of the list). */
+export const hasFilesToSend = (r: Pick<Row, 'files'>): boolean => activeFiles(r.files).length > 0;
 
 /** True when a problem is about the details (and so must not be sent to the server) and not about the files. */
 export const isDetailProblem = (p: string): boolean => /Patient ID|name is longer/.test(p);

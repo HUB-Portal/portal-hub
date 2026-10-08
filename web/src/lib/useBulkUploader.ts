@@ -3,7 +3,7 @@ import { createStore } from 'solid-js/store';
 import { plural } from './format';
 import { ApiError } from './api';
 import { httpBulkGateway, type BulkGateway } from './bulkGateway';
-import { buildRows, detailsOf, entryError, isBusy, planIntake, problemsOf, type Row } from './bulkRows';
+import { buildRows, detailsOf, entryError, hasFilesToSend, isBusy, planIntake, problemsOf, type Row } from './bulkRows';
 import type { IntakeResult } from './intake';
 import { activeFiles, fileSummary, toSpecs, type SourceMap } from './review';
 import { CASES_AT_ONCE, friendlyUploadError } from './upload';
@@ -28,14 +28,13 @@ export function analyseRow(r: Row) {
  * and sends them to K Line. It knows nothing about how a card looks (that is the page and its components) or how the server is reached (that is the
  * gateway), so both can change without touching it.
  *
- * What it returns is reactive: `rows` is a store (a list of cards edited in place), and `analysis`, `notes`, `reading`, `ack`, `locked`,
+ * What it returns is reactive: `rows` is a store (a list of cards edited in place), and `analysis`, `notes`, `reading`, `locked`,
  * `addressRefused`, `ready`, `sendable`, `finished` and `working` are getters. Read them inside JSX or an effect and do not destructure the result.
  */
 export function createBulkUploader({ blocked, onChanged, gateway = httpBulkGateway }: BulkUploaderOptions) {
   const [rows, setRows] = createStore<Row[]>([]);
   const [notes, setNotes] = createSignal<string[]>([]);
   const [reading, setReading] = createSignal(0);
-  const [ack, setAck] = createSignal(false);
   const [locked, setLocked] = createSignal(false);
   const [addressRefused, setAddressRefused] = createSignal(false);
   let sources: SourceMap = new Map();
@@ -65,7 +64,9 @@ export function createBulkUploader({ blocked, onChanged, gateway = httpBulkGatew
       const merged: SourceMap = new Map(sources);
       for (const f of plan.files) merged.set(f.path, f.source);
       sources = merged;
-      const fresh = await buildRows(plan.files, merged, new Set(rows.map((x) => x.key)));
+      const built = await buildRows(plan.files, merged, new Set(rows.map((x) => x.key)));
+      const fresh = built.filter(hasFilesToSend);
+      if (fresh.length < built.length) setNotes([...msgs, `${plural(built.length - fresh.length, 'folder')} had no files to send and ${built.length - fresh.length === 1 ? 'was' : 'were'} left out.`]);
       setRows((rs) => [...rs, ...fresh]);
     } finally {
       setReading((n) => n - 1);
@@ -106,9 +107,7 @@ export function createBulkUploader({ blocked, onChanged, gateway = httpBulkGatew
       });
       const bad = [...result.files].filter(([, s]) => s.phase !== 'ready').map(([k]) => k);
       if (bad.length) { patch(key, { stage: 'attention', failedKeys: bad, message: `${plural(bad.length, 'file')} did not upload or did not pass the checks.` }); return; }
-      const checks = await gateway.checks(caseUuid, ctrl.signal);
-      if (checks.errors) { patch(key, { stage: 'attention', message: `The checks found ${plural(checks.errors, 'problem')}. Open the case to see them.` }); return; }
-      patch(key, { stage: 'uploaded', serverWarnings: checks.warnings, message: undefined });
+      patch(key, { stage: 'uploaded', message: undefined });
       onChanged?.();
     } catch (e) {
       if (e instanceof ApiError && e.code === 'org_not_approved') setLocked(true);
@@ -136,7 +135,7 @@ export function createBulkUploader({ blocked, onChanged, gateway = httpBulkGatew
   onCleanup(() => { for (const a of aborts.values()) a.abort(); });
 
   const ready = createMemo(() => rows.filter((r) => r.stage === 'uploaded'));
-  const sendable = createMemo(() => rows.filter((r) => r.stage === 'uploaded' && (!r.serverWarnings || ack())));
+  const sendable = createMemo(() => rows.filter((r) => r.stage === 'uploaded'));
   const working = createMemo(() => rows.some((r) => isBusy(r) || r.stage === 'sending'));
   useLeaveWarning(working);
 
@@ -165,13 +164,12 @@ export function createBulkUploader({ blocked, onChanged, gateway = httpBulkGatew
   /** Sends the cards that are ready. Details typed a moment ago reach the case first, because a sent case can no longer be changed. */
   async function sendAll() {
     const batch = sendable();
-    const acknowledged = ack();
     for (const r of batch) patch(r.key, { stage: 'sending', message: undefined });
     for (const r of batch) {
       const cur = find(r.key)!;
       try {
         await sync.flush(cur);
-        const s = await gateway.submit(r.caseUuid!, acknowledged);
+        const s = await gateway.submit(r.caseUuid!);
         if (s.outcome === 'submitted') patch(r.key, { stage: 'sent', synced: detailsOf(cur) });
         else if (s.outcome === 'locked') patch(r.key, { stage: 'uploaded', message: 'Sending is locked until your account is approved.' });
         else patch(r.key, { stage: 'attention', message: s.reason });
@@ -187,8 +185,6 @@ export function createBulkUploader({ blocked, onChanged, gateway = httpBulkGatew
     get analysis() { return analysis(); },
     get notes() { return notes(); },
     get reading() { return reading(); },
-    get ack() { return ack(); },
-    setAck,
     get working() { return working(); },
     get locked() { return locked(); },
     get addressRefused() { return addressRefused(); },

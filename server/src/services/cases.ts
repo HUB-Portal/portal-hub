@@ -99,11 +99,18 @@ export function partnerPortalBlock(row: any) {
   return { ...rest, ...(lastError && /case address/i.test(lastError) ? { actionNeeded: 'case_address' as const } : {}) };
 }
 
-/** Partner people (not API keys, whose scopes decide what they may read) get the partner view of a case. */
-export const partnerView = (a: AuthContext) => ({ partner: a.orgKind === 'partner' && a.kind === 'user' });
+/**
+ * What the reader of a case may see. Partner people (not API keys, whose scopes decide what they may read) get the partner view: their own patients'
+ * names in full. Only K Line administrators (the ones who can manage the factory and portal connections) get the text of an integration error;
+ * everybody else, partners included, only learns that the hand over is delayed.
+ */
+export const partnerView = (a: AuthContext) => ({
+  partner: a.orgKind === 'partner' && a.kind === 'user',
+  integration: a.orgKind === 'kline' && a.kind === 'user' && a.permissions.has('admin.mes'),
+});
 
 /** `partner` is true when the reader belongs to the partner organisation. They see their own patient names in full and no integration errors. */
-export function caseDto(row: any, view: { partner?: boolean } = {}) {
+export function caseDto(row: any, view: { partner?: boolean; integration?: boolean } = {}) {
   const p = patientOf(row);
   return {
     id: row.id,
@@ -134,7 +141,7 @@ export function caseDto(row: any, view: { partner?: boolean } = {}) {
     fileCount: row.file_count ?? 0,
     checks: { errors: row.checks?.errors ?? [], warnings: row.checks?.warnings ?? [] },
     warningsAcknowledged: row.warnings_acknowledged,
-    portal: view.partner ? partnerPortalBlock(row) : portalBlock(row),
+    portal: view.integration ? portalBlock(row) : partnerPortalBlock(row),
     bulkBatchId: row.bulk_batch_id ?? null,
     parentId: row.parent_id ?? null,
     parentRef: row.parent_ref ?? null,
@@ -335,20 +342,19 @@ export interface ListQuery {
 }
 
 /**
- * Cases that need the partner to do something: on hold, a draft with errors, a rejected file, or a missing case address. A failed push for
+ * Cases that need the partner to do something: on hold, a rejected file, or a missing case address. A failed push for
  * any other reason is K Line's to fix (it is retried and K Line is alerted), so it does not count for a partner. K Line staff see every failure.
  */
 export const attentionSql = (a: AuthContext): string => {
   const failed = a.orgKind === 'partner'
     ? `(c.portal_push->>'status' = 'failed' AND c.portal_push->>'lastError' ILIKE '%case address%')`
     : `c.portal_push->>'status' = 'failed'`;
-  // A draft with errors is the partner's to fix. K Line staff never see a partner's drafts as their own work.
-  const draftErrors = a.orgKind === 'partner' ? ` OR (c.status = 'draft' AND jsonb_array_length(c.checks->'errors') > 0)` : '';
-  return `(c.status = 'on_hold' OR ${failed}${draftErrors} OR (c.status IN ('draft', 'submitted') AND EXISTS (SELECT 1 FROM files f WHERE f.case_id = c.id AND f.state = 'rejected')))`;
+  // The checks no longer stop a submission, so a draft with check errors is not something the partner has to deal with.
+  return `(c.status = 'on_hold' OR ${failed} OR (c.status IN ('draft', 'submitted') AND EXISTS (SELECT 1 FROM files f WHERE f.case_id = c.id AND f.state = 'rejected')))`;
 };
 
 /** Counts for the filter chips, the menu and the Direct manufacturing page: how many cases need attention and how many are drafts. */
-export async function caseCounts(ctx: DbCtx, a: AuthContext): Promise<{ all: number; attention: number; drafts: number; draftsWithErrors: number }> {
+export async function caseCounts(ctx: DbCtx, a: AuthContext): Promise<{ all: number; attention: number; drafts: number }> {
   const params: unknown[] = [];
   const where: string[] = [];
   if (a.orgKind === 'partner') { params.push(a.orgId); where.push(`c.org_id = $${params.length}`); }
@@ -358,12 +364,11 @@ export async function caseCounts(ctx: DbCtx, a: AuthContext): Promise<{ all: num
   return tx(ctx, async (c) => {
     const r = await one<any>(
       c,
-      `SELECT count(*)::int AS "all", count(*) FILTER (WHERE ${attentionSql(a)})::int AS attention, count(*) FILTER (WHERE c.status = 'draft')::int AS drafts,
-              count(*) FILTER (WHERE c.status = 'draft' AND jsonb_array_length(c.checks->'errors') > 0)::int AS "draftsWithErrors"
+      `SELECT count(*)::int AS "all", count(*) FILTER (WHERE ${attentionSql(a)})::int AS attention, count(*) FILTER (WHERE c.status = 'draft')::int AS drafts
          FROM cases c ${w}`,
       params,
     );
-    return { all: r?.all ?? 0, attention: r?.attention ?? 0, drafts: r?.drafts ?? 0, draftsWithErrors: r?.draftsWithErrors ?? 0 };
+    return { all: r?.all ?? 0, attention: r?.attention ?? 0, drafts: r?.drafts ?? 0 };
   });
 }
 
@@ -650,11 +655,10 @@ export async function submitCase(ctx: DbCtx, a: AuthContext, id: string, opts: {
     // Early gate for direct manufacturing cases: the case address is sent to the portal, so a missing one is reported now.
     if (row.manufacturing_mode === 'direct') await assertCaseAddress(c, row.org_id, row.created_by ?? null);
 
+    // The checks still run and are kept on the case for K Line to read, but nothing in them stops a submission (decision of 8 Oct 2026:
+    // no restriction on sending a case; the only error left is a failed hand over to the K Line portal, which only K Line administrators see).
     const checks = await recomputeCase(c, id);
-    if (checks && checks.errors.length) throw new AppError(409, 'checks_failed', 'Fix the problems with this case before submitting it.', { errors: checks.errors });
-    if (checks && checks.warnings.length && !opts.acknowledgeWarnings) {
-      throw new AppError(409, 'warnings_need_confirmation', 'There are warnings. Please read and confirm them to continue.', { warnings: checks.warnings });
-    }
+    const warned = !!checks?.warnings.length;
 
     const { manual, site, slaDays } = await resolveRouting(c, row.org_id, true, { direct: row.manufacturing_mode === 'direct' });
 
@@ -671,11 +675,11 @@ export async function submitCase(ctx: DbCtx, a: AuthContext, id: string, opts: {
               hold_reason = NULL, stage = NULL, received_at = NULL, started_at = NULL, finished_at = NULL, warnings_acknowledged = $7, warnings_acknowledged_at = CASE WHEN $7 THEN now() ELSE NULL END, warnings_acknowledged_by = $8,
               portal_push = CASE WHEN $9 THEN jsonb_build_object('status', 'pending', 'attempts', 0) ELSE portal_push END, updated_at = now()
         WHERE id = $1`,
-      [id, ready ? 'ready' : 'submitted', ready ? now : null, ready ? site?.id ?? null : null, ready ? addBusinessDays(now, slaDays) : null, spec?.id ?? null, !!(checks?.warnings.length && opts.acknowledgeWarnings), a.userId, direct],
+      [id, ready ? 'ready' : 'submitted', ready ? now : null, ready ? site?.id ?? null : null, ready ? addBusinessDays(now, slaDays) : null, spec?.id ?? null, warned, a.userId, direct],
     );
     await c.query(`INSERT INTO case_events (org_id, case_id, type, actor_type, actor_id, data) VALUES ($1, $2, $3, $4, $5, $6::jsonb)`, [
       row.org_id, id, fromHold ? 'resubmitted' : 'submitted', actor.actorType, actor.actorId,
-      JSON.stringify({ status: ready ? 'ready' : 'submitted', site: ready ? site?.code ?? null : null, warnings: checks?.warnings.length ?? 0, acknowledged: !!opts.acknowledgeWarnings }),
+      JSON.stringify({ status: ready ? 'ready' : 'submitted', site: ready ? site?.code ?? null : null, warnings: checks?.warnings.length ?? 0, errors: checks?.errors.length ?? 0 }),
     ]);
     await auditFor(c, actor, row.org_id, fromHold ? 'case.resubmitted' : 'case.submitted', id, { ref: row.ref, status: ready ? 'ready' : 'submitted', mode: row.manufacturing_mode });
     if (!ready) await enqueue(c, 'notify.kline', { kind: 'case_submitted', caseId: id }, { orgId: row.org_id });

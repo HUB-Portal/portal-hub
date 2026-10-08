@@ -3,8 +3,7 @@
 import { api } from './api';
 import { INSTRUCTIONS_MAX } from './instructions';
 import { clean, type Row } from './bulkRows';
-import { submitWhenClean, uploadCaseFiles, type CaseUploadResult, type SubmitOutcome, type UploadHooks, type UploadSpec } from './upload';
-import type { CaseItem } from './types';
+import { submitCase, uploadCaseFiles, type CaseUploadResult, type SubmitOutcome, type UploadHooks, type UploadSpec } from './upload';
 
 export interface CreatedCase { id?: string; ref?: string; error?: string }
 
@@ -17,10 +16,8 @@ export interface BulkGateway {
   remove(caseUuid: string): Promise<void>;
   /** Sends the files of a case. */
   upload(caseUuid: string, specs: UploadSpec[], hooks: UploadHooks): Promise<CaseUploadResult>;
-  /** How many problems and warnings the server's checks gave a case. */
-  checks(caseUuid: string, signal?: AbortSignal): Promise<{ errors: number; warnings: number }>;
   /** Submits a case when its checks allow it. */
-  submit(caseUuid: string, acknowledgeWarnings: boolean): Promise<SubmitOutcome>;
+  submit(caseUuid: string): Promise<SubmitOutcome>;
 }
 
 export const httpBulkGateway: BulkGateway = {
@@ -37,9 +34,5 @@ export const httpBulkGateway: BulkGateway = {
     await api(`/api/cases/${caseUuid}`, { method: 'DELETE' });
   },
   upload: (caseUuid, specs, hooks) => uploadCaseFiles(caseUuid, specs, hooks),
-  async checks(caseUuid, signal) {
-    const d = await api<{ case: CaseItem }>(`/api/cases/${caseUuid}`, { signal });
-    return { errors: d.case.checks.errors.length, warnings: d.case.checks.warnings.length };
-  },
-  submit: (caseUuid, acknowledgeWarnings) => submitWhenClean(caseUuid, acknowledgeWarnings),
+  submit: (caseUuid) => submitCase(caseUuid),
 };

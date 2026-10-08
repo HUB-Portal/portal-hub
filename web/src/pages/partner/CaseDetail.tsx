@@ -178,7 +178,7 @@ export default function CaseDetail(props: { staff?: boolean }) {
           const canErase = () => can('case.erase') && c().status !== 'draft' && !erased();
           const uploading = () => files().some((f) => f.state === 'uploading' || f.state === 'processing') || uploader.busy;
           // Why Submit is switched off: an error blocks it, so say so instead of letting the partner press it and read the answer afterwards.
-          const submitBlock = (): string | null => (c().checks.errors.length ? `Fix ${c().checks.errors.length === 1 ? 'the error' : `the ${c().checks.errors.length} errors`} first: ${c().checks.errors[0]!.message}` : uploading() && files().some((f) => f.state === 'uploading' && idle()) ? 'Some files were not finished uploading. Remove them or add them again.' : null);
+          const submitBlock = (): string | null => (uploading() && files().some((f) => f.state === 'uploading' && idle()) ? 'Some files were not finished uploading. Remove them or add them again.' : null);
           const onSubmitted = (text: string) => { setDialog(null); setNotice({ tone: 'good', text }); refresh(); };
 
           return (
@@ -282,8 +282,8 @@ export default function CaseDetail(props: { staff?: boolean }) {
               <div class="grid-2">
                 <Card title="Checks">
                   <Show when={c().checks.errors.length === 0 && c().checks.warnings.length === 0}><Notice tone="good">All checks passed.</Notice></Show>
-                  <Show when={c().checks.errors.length}><h3>Errors</h3><p class="small muted">These stop the case from being submitted.</p><IssueList tone="bad" items={c().checks.errors} /></Show>
-                  <Show when={c().checks.warnings.length}><h3>Warnings</h3><p class="small muted">{c().status === 'draft' || c().status === 'on_hold' ? 'You can submit, but you must confirm you have read them.' : 'You confirmed these warnings when the case was submitted. They do not stop production.'}{c().status === 'draft' || c().status === 'on_hold' ? (c().warningsAcknowledged ? ' You confirmed them already.' : '') : ''}</p><IssueList tone="warn" items={c().checks.warnings} /></Show>
+                  <Show when={c().checks.errors.length}><h3>Findings</h3><p class="small muted">K Line looks at these. They do not stop the case from being sent.</p><IssueList tone="bad" items={c().checks.errors} /></Show>
+                  <Show when={c().checks.warnings.length}><h3>Notes</h3><p class="small muted">For your information. They do not stop the case from being sent or made.</p><IssueList tone="warn" items={c().checks.warnings} /></Show>
                 </Card>
                 <FactsCard c={c()} staff={staff()} routing={routing()} />
               </div>
@@ -347,8 +347,7 @@ export default function CaseDetail(props: { staff?: boolean }) {
                 </Show>
                 <Show when={unmapped().length}>
                   <div class="stack-sm">
-                    <h3>Files without an arch or step</h3>
-                    <IssueList tone="bad" items={[{ message: 'Say which arch and step each of these belongs to before you submit.' }]} />
+                    <h3>Other model and trim line files</h3>
                     <div class="table-wrap">
                       <table class="table">
                         <tbody>
@@ -675,13 +674,10 @@ function EraseDialog(props: { open: boolean; c: CaseItem; followUps: number; onC
 }
 
 function SubmitDialog(props: { open: boolean; c: CaseItem; onClose: () => void; onDone: (text: string) => void }) {
-  const [ack, setAck] = createSignal(false);
   const [error, setError] = createSignal<string | null>(null);
-  createEffect(on(() => props.open, (open) => { if (open) { setAck(false); setError(null); } }));
-  const hasErrors = () => props.c.checks.errors.length > 0;
-  const hasWarnings = () => props.c.checks.warnings.length > 0;
+  createEffect(on(() => props.open, (open) => { if (open) setError(null); }));
   const m = createMutation(() => ({
-    mutationFn: () => api(`/api/cases/${props.c.id}/submit`, { method: 'POST', body: { acknowledgeWarnings: hasWarnings() && ack() } }),
+    mutationFn: () => api(`/api/cases/${props.c.id}/submit`, { method: 'POST', body: {} }),
     onSuccess: () => props.onDone(props.c.manufacturingMode === 'direct' ? 'The case was submitted. We are sending it to the customer portal.' : 'The case was submitted.'),
     onError: (e: unknown) => setError(e instanceof ApiError && e.code === 'org_not_approved' ? 'Uploads and submissions are locked until K Line approves your account.' : e instanceof ApiError && e.code === 'transfer_blocked' ? 'This case cannot be produced at any site allowed for your organisation. Contact K Line.' : errorText(e)),
   }));
@@ -691,17 +687,11 @@ function SubmitDialog(props: { open: boolean; c: CaseItem; onClose: () => void; 
       title="Submit this case"
       onClose={props.onClose}
       wide
-      footer={<><Button onClick={props.onClose}>Not yet</Button><Button variant="primary" loading={m.isPending} disabled={hasErrors() || (hasWarnings() && !ack())} onClick={() => { setError(null); m.mutate(); }}>Submit case</Button></>}
+      footer={<><Button onClick={props.onClose}>Not yet</Button><Button variant="primary" loading={m.isPending} onClick={() => { setError(null); m.mutate(); }}>Submit case</Button></>}
     >
       <div class="stack">
         <Show when={error()}><Notice tone="bad">{error()}</Notice></Show>
-        <Show when={hasErrors()}><Notice tone="bad" title="Fix these errors first" /><IssueList tone="bad" items={props.c.checks.errors} /></Show>
-        <Show when={hasWarnings()}>
-          <Notice tone="warn" title="These warnings need your confirmation" />
-          <IssueList tone="warn" items={props.c.checks.warnings} />
-          <Toggle checked={ack()} onChange={setAck} label="I have read the warnings and want to submit anyway" hint="Your confirmation is stored with the case." />
-        </Show>
-        <Show when={!hasErrors() && !hasWarnings()}><p>All checks passed. Once submitted, K Line can start work on this case.</p></Show>
+        <p>Once submitted, K Line can start work on this case.</p>
       </div>
     </Dialog>
   );
@@ -753,7 +743,7 @@ function PlainStatus(props: { c: CaseItem }) {
         {address()
           ? 'K Line needs your case address to send the aligners back. Add it, and we send this case on.'
           : props.c.manufacturingMode === 'direct' && props.c.portal.status === 'failed'
-            ? 'Your case is safe with us. K Line has been told and keeps trying in the background. You do not need to do anything.'
+            ? 'Something went wrong on our side while passing your case on to K Line. Nothing is lost and it is not your doing. K Line has been told and is fixing it. You do not need to do anything.'
             : st().next ?? 'You do not need to do anything now.'}
       </Notice>
     </Show>

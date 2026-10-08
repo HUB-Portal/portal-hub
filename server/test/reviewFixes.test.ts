@@ -14,6 +14,7 @@ import { Client, PNG_BYTES, cubeStl, laserCsv, minimalPdf, trimLine } from './he
 let app: FastifyInstance;
 let up: Client;
 let kl: Client;
+let intake: Client;
 const fake = new FakePortalClient();
 
 const q = <T = any>(sql: string, params: unknown[] = []) => tx(SYSTEM, async (c) => (await c.query(sql, params)).rows as T[]);
@@ -24,6 +25,7 @@ beforeAll(async () => {
   await app.ready();
   up = await new Client(app).full('upload@acme.demo');
   kl = await new Client(app).full('admin@kline.demo');
+  intake = await new Client(app).full('intake@kline.demo');
   setPortalClientFactory(() => fake);
 });
 
@@ -76,6 +78,24 @@ describe('what a partner sees of a case', () => {
     expect(listed.portal.lastError).toBeUndefined();
     const staff = (await kl.call('GET', `/api/console/cases/${id}`)).json.case;
     expect(staff.portal.lastError).toMatch(/portal settings/);
+    // only an administrator reads the text: other K Line staff learn that the hand over failed, and not why
+    const other = (await intake.call('GET', `/api/console/cases/${id}`)).json.case;
+    expect(other.portal.status).toBe('failed');
+    expect(other.portal.lastError).toBeUndefined();
+    expect(other.portal.syncError).toBeUndefined();
+  });
+
+  it('lets a case with errors and warnings be submitted: nothing in the checks stops it', async () => {
+    const id = await withFiles('NR1');
+    await up.uploadFile(id, 'NR1_loose.stl', cubeStl(50), { arch: null, step: null }); // a model without arch and step used to be an error
+    const before = (await up.call('GET', `/api/cases/${id}`)).json.case.checks;
+    expect(before.errors.length).toBeGreaterThan(0);
+    const sent = await up.call('POST', `/api/cases/${id}/submit`, {});
+    expect(sent.status, JSON.stringify(sent.json)).toBe(200);
+    expect(['submitted', 'ready']).toContain(sent.json.case.status);
+    // a case with no file at all goes too
+    const empty = await draft('NR2');
+    expect((await up.call('POST', `/api/cases/${empty}/submit`, {})).status).toBe(200);
   });
 
   it('reports a missing case address as the one thing the partner can fix', async () => {
@@ -105,12 +125,9 @@ describe('counts and order of the list', () => {
     const id = await draft('A3');
     await q(`UPDATE cases SET checks = '{"errors":[{"code":"no_stl","message":"No models."}],"warnings":[]}'::jsonb WHERE id = $1`, [id]);
     const after = (await up.call('GET', '/api/cases/counts')).json;
-    expect(after.attention).toBe(before.attention + 1);
-    expect(after.draftsWithErrors).toBe(before.draftsWithErrors + 1);
+    // a draft with check errors is nothing the partner has to deal with (the checks do not stop a submission)
+    expect(after.attention).toBe(before.attention);
     expect(after.drafts).toBe(before.drafts + 1);
-    const attention = (await up.call('GET', '/api/cases?status=attention&pageSize=100')).json;
-    expect(attention.items.some((c: any) => c.id === id)).toBe(true);
-    expect(attention.total).toBe(after.attention);
     // a failed hand over for another reason is not the partner's to fix
     const failed = await draft('A3b');
     await q(`UPDATE cases SET status = 'submitted', portal_push = '{"status":"failed","lastError":"internal"}'::jsonb WHERE id = $1`, [failed]);
