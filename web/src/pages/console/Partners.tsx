@@ -1,6 +1,6 @@
-import { useEffect, useState } from 'react';
-import { Link, useLocation, useNavigate, useSearchParams } from 'react-router-dom';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { createEffect, createSignal, For, on, onCleanup, Show } from 'solid-js';
+import { A, useLocation, useNavigate, useSearchParams } from '@solidjs/router';
+import { createMutation, createQuery, useQueryClient } from '@tanstack/solid-query';
 import { api, errorText } from '../../lib/api';
 import { useSites } from '../../lib/console';
 import { formatDate, formatNumber } from '../../lib/format';
@@ -38,24 +38,31 @@ export const PARTNER_STATUS: Record<string, { label: string; tone: 'good' | 'war
   suspended: { label: 'Suspended', tone: 'bad' },
 };
 
-export function PartnerStatus({ status, declined }: { status: string; declined?: boolean }) {
-  if (declined) return <Badge tone="bad">Declined</Badge>;
-  const s = PARTNER_STATUS[status] ?? { label: status, tone: 'warn' as const };
-  return <Badge tone={s.tone}>{s.label}</Badge>;
+export function PartnerStatus(props: { status: string; declined?: boolean }) {
+  const s = () => PARTNER_STATUS[props.status] ?? { label: props.status, tone: 'warn' as const };
+  return (
+    <Show when={!props.declined} fallback={<Badge tone="bad">Declined</Badge>}>
+      <Badge tone={s().tone}>{s().label}</Badge>
+    </Show>
+  );
 }
 
 /** Badges for companies that registered themselves. */
-export function SignupBadges({ p }: { p: Pick<PartnerRow, 'newSignup' | 'emailNotConfirmed' | 'declined' | 'freeEmail'> }) {
-  if (!p.newSignup && !p.emailNotConfirmed && !p.declined && !p.freeEmail) return null;
+export function SignupBadges(props: { p: Pick<PartnerRow, 'newSignup' | 'emailNotConfirmed' | 'declined' | 'freeEmail'> }) {
   return (
-    <span className="badge-row">
-      {p.newSignup && !p.declined ? <Badge tone="info">New sign up</Badge> : null}
-      {p.emailNotConfirmed && !p.declined ? <Badge tone="warn">Email not confirmed</Badge> : null}
-      {p.declined ? <Badge tone="bad">Declined</Badge> : null}
-      {p.freeEmail ? <Badge tone="neutral" title="They registered with a personal mailbox, not a company address">Personal email</Badge> : null}
-    </span>
+    <Show when={props.p.newSignup || props.p.emailNotConfirmed || props.p.declined || props.p.freeEmail}>
+      <span class="badge-row">
+        {props.p.newSignup && !props.p.declined ? <Badge tone="info">New sign up</Badge> : null}
+        {props.p.emailNotConfirmed && !props.p.declined ? <Badge tone="warn">Email not confirmed</Badge> : null}
+        {props.p.declined ? <Badge tone="bad">Declined</Badge> : null}
+        {props.p.freeEmail ? <Badge tone="neutral" title="They registered with a personal mailbox, not a company address">Personal email</Badge> : null}
+      </span>
+    </Show>
   );
 }
+
+/** A search parameter as plain text: empty when it is missing. */
+const one = (v: string | string[] | undefined): string => (Array.isArray(v) ? (v[0] ?? '') : (v ?? ''));
 
 type Tab = 'all' | 'review' | 'declined';
 const TABS: { id: Tab; label: string }[] = [
@@ -73,195 +80,199 @@ const EMPTY: Record<Tab, { title: string; text: string }> = {
 export default function Partners() {
   const [params, setParams] = useSearchParams();
   const loc = useLocation();
-  const tabParam = params.get('tab');
-  const tab: Tab = tabParam === 'review' || tabParam === 'declined' ? tabParam : 'all';
-  const [text, setText] = useState(params.get('search') ?? '');
-  const [search, setSearch] = useState(text);
-  const [adding, setAdding] = useState(false);
-  const flash = (loc.state as { notice?: string } | null)?.notice ?? null;
+  const tab = (): Tab => (params.tab === 'review' || params.tab === 'declined' ? params.tab : 'all');
+  const [text, setText] = createSignal(one(params.search));
+  const [search, setSearch] = createSignal(text());
+  const [adding, setAdding] = createSignal(false);
+  const flash = () => (loc.state as { notice?: string } | null)?.notice ?? null;
 
-  useEffect(() => {
-    const t = setTimeout(() => setSearch(text.trim()), 300);
-    return () => clearTimeout(t);
-  }, [text]);
-
-  const q = useQuery({
-    queryKey: ['partners', tab, search],
-    queryFn: () => api<PartnerList>(`/api/partners?tab=${tab}${search ? `&search=${encodeURIComponent(search)}` : ''}`),
+  createEffect(() => {
+    const t = text();
+    const h = setTimeout(() => setSearch(t.trim()), 300);
+    onCleanup(() => clearTimeout(h));
   });
-  const rows = q.data?.items ?? [];
-  const showRegistered = rows.some((r) => r.signupAt);
-  const showDeletes = tab === 'declined' && rows.some((r) => r.deletesAt);
+
+  const q = createQuery(() => ({
+    queryKey: ['partners', tab(), search()],
+    queryFn: () => api<PartnerList>(`/api/partners?tab=${tab()}${search() ? `&search=${encodeURIComponent(search())}` : ''}`),
+  }));
+  const rows = () => q.data?.items ?? [];
+  const showRegistered = () => rows().some((r) => r.signupAt);
+  const showDeletes = () => tab() === 'declined' && rows().some((r) => r.deletesAt);
 
   function pick(t: Tab) {
-    const next = new URLSearchParams(params);
-    if (t === 'all') next.delete('tab'); else next.set('tab', t);
-    setParams(next, { replace: true });
+    setParams({ tab: t === 'all' ? undefined : t }, { replace: true });
   }
 
   return (
-    <div className="page">
+    <div class="page">
       <PageHeader
         title="Partners"
         subtitle="Partner organisations, their agreements and where their cases may be made."
         actions={<Button variant="primary" onClick={() => setAdding(true)}>Add partner</Button>}
       />
-      {flash ? <Notice tone="good">{flash}</Notice> : null}
+      <Show when={flash()}>{(f) => <Notice tone="good">{f()}</Notice>}</Show>
       <Card>
-        <div className="toolbar">
-          <div className="tabs" role="group" aria-label="Show">
-            {TABS.map((t) => (
-              <button key={t.id} type="button" className="tab" aria-pressed={tab === t.id} onClick={() => pick(t.id)}>
-                {t.label}
-                {q.data?.counts && q.data.counts[t.id] > 0 ? <span className="tab-count">{formatNumber(q.data.counts[t.id])}</span> : null}
-              </button>
-            ))}
+        <div class="toolbar">
+          <div class="tabs" role="group" aria-label="Show">
+            <For each={TABS}>
+              {(t) => (
+                <button type="button" class="tab" aria-pressed={tab() === t.id} onClick={() => pick(t.id)}>
+                  {t.label}
+                  {q.data?.counts && q.data.counts[t.id] > 0 ? <span class="tab-count">{formatNumber(q.data.counts[t.id])}</span> : null}
+                </button>
+              )}
+            </For>
           </div>
-          <Field label="Search partners" className="grow">
-            {(p) => <input {...p} type="search" value={text} onChange={(e) => setText(e.target.value)} placeholder="Name or code" autoComplete="off" />}
+          <Field label="Search partners" class="grow">
+            {(p) => <input {...p} type="search" value={text()} onInput={(e) => setText(e.currentTarget.value)} placeholder="Name or code" autocomplete="off" />}
           </Field>
         </div>
-        {q.isLoading ? <Spinner /> : null}
-        {q.isError ? <Notice tone="bad">{errorText(q.error)}</Notice> : null}
-        {q.data && rows.length === 0 ? <Empty title={search ? 'No partners match your search' : EMPTY[tab].title}>{search ? 'Try a different name or code.' : EMPTY[tab].text}</Empty> : null}
-        {rows.length ? (
-          <div className="table-wrap">
-            <table className="table">
+        <Show when={q.isLoading}><Spinner /></Show>
+        <Show when={q.isError}><Notice tone="bad">{errorText(q.error)}</Notice></Show>
+        <Show when={q.data && rows().length === 0}><Empty title={search() ? 'No partners match your search' : EMPTY[tab()].title}>{search() ? 'Try a different name or code.' : EMPTY[tab()].text}</Empty></Show>
+        <Show when={rows().length}>
+          <div class="table-wrap">
+            <table class="table">
               <thead>
                 <tr>
                   <th>Partner</th><th>Status</th><th>Country</th>
-                  {showRegistered ? <th>Registered</th> : null}
-                  {showDeletes ? <th>Deleted on</th> : null}
-                  <th>DPA</th><th>SCC</th><th className="num">Sites</th><th className="num">People</th><th className="num">Open cases</th>
+                  <Show when={showRegistered()}><th>Registered</th></Show>
+                  <Show when={showDeletes()}><th>Deleted on</th></Show>
+                  <th>DPA</th><th>SCC</th><th class="num">Sites</th><th class="num">People</th><th class="num">Open cases</th>
                 </tr>
               </thead>
               <tbody>
-                {rows.map((p) => (
-                  <tr key={p.id}>
-                    <td className="link-cell">
-                      <Link to={`/console/partners/${p.id}`}>{p.name}</Link> <span className="muted small">{p.code}</span>
-                      <SignupBadges p={p} />
-                    </td>
-                    <td><PartnerStatus status={p.status} declined={p.declined} /></td>
-                    <td>{countryName(p.country)}</td>
-                    {showRegistered ? <td className="nowrap">{p.signupAt ? formatDate(p.signupAt) : ''}</td> : null}
-                    {showDeletes ? <td className="nowrap">{p.deletesAt ? formatDate(p.deletesAt) : ''}</td> : null}
-                    <td><Gate ok={p.dpaOnFile} /></td>
-                    <td><Gate ok={p.sccOnFile} /></td>
-                    <td className="num">{formatNumber(p.siteCodes.length)}</td>
-                    <td className="num">{formatNumber(p.usersCount)}</td>
-                    <td className="num">{formatNumber(p.openCases)}</td>
-                  </tr>
-                ))}
+                <For each={rows()}>
+                  {(p) => (
+                    <tr>
+                      <td class="link-cell">
+                        <A href={`/console/partners/${p.id}`}>{p.name}</A> <span class="muted small">{p.code}</span>
+                        <SignupBadges p={p} />
+                      </td>
+                      <td><PartnerStatus status={p.status} declined={p.declined} /></td>
+                      <td>{countryName(p.country)}</td>
+                      <Show when={showRegistered()}><td class="nowrap">{p.signupAt ? formatDate(p.signupAt) : ''}</td></Show>
+                      <Show when={showDeletes()}><td class="nowrap">{p.deletesAt ? formatDate(p.deletesAt) : ''}</td></Show>
+                      <td><Gate ok={p.dpaOnFile} /></td>
+                      <td><Gate ok={p.sccOnFile} /></td>
+                      <td class="num">{formatNumber(p.siteCodes.length)}</td>
+                      <td class="num">{formatNumber(p.usersCount)}</td>
+                      <td class="num">{formatNumber(p.openCases)}</td>
+                    </tr>
+                  )}
+                </For>
               </tbody>
             </table>
           </div>
-        ) : null}
+        </Show>
       </Card>
-      <AddPartnerDialog open={adding} onClose={() => setAdding(false)} />
+      <AddPartnerDialog open={adding()} onClose={() => setAdding(false)} />
     </div>
   );
 }
 
-function AddPartnerDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
+function AddPartnerDialog(props: { open: boolean; onClose: () => void }) {
   const nav = useNavigate();
   const qc = useQueryClient();
   const sites = useSites();
-  const [name, setName] = useState('');
-  const [code, setCode] = useState('');
-  const [codeEdited, setCodeEdited] = useState(false);
-  const [country, setCountry] = useState('');
-  const [legalName, setLegalName] = useState('');
-  const [retention, setRetention] = useState('');
-  const [siteCodes, setSiteCodes] = useState<string[]>([]);
-  const [defaultSite, setDefaultSite] = useState('');
-  const [error, setError] = useState<string | null>(null);
+  const [name, setName] = createSignal('');
+  const [code, setCode] = createSignal('');
+  const [codeEdited, setCodeEdited] = createSignal(false);
+  const [country, setCountry] = createSignal('');
+  const [legalName, setLegalName] = createSignal('');
+  const [retention, setRetention] = createSignal('');
+  const [siteCodes, setSiteCodes] = createSignal<string[]>([]);
+  const [defaultSite, setDefaultSite] = createSignal('');
+  const [error, setError] = createSignal<string | null>(null);
 
-  useEffect(() => {
+  createEffect(on(() => props.open, (open) => {
     if (open) { setName(''); setCode(''); setCodeEdited(false); setCountry(''); setLegalName(''); setRetention(''); setSiteCodes([]); setDefaultSite(''); setError(null); }
-  }, [open]);
+  }));
 
-  const cProblem = code ? codeProblem(code) : null;
-  const r = Number(retention);
-  const retentionOk = !retention || (Number.isInteger(r) && r >= 1 && r <= 180);
-  const valid = name.trim().length >= 2 && !!code && !cProblem && !!country && retentionOk;
+  const cProblem = () => (code() ? codeProblem(code()) : null);
+  const r = () => Number(retention());
+  const retentionOk = () => !retention() || (Number.isInteger(r()) && r() >= 1 && r() <= 180);
+  const valid = () => name().trim().length >= 2 && !!code() && !cProblem() && !!country() && retentionOk();
 
-  const m = useMutation({
+  const m = createMutation(() => ({
     mutationFn: () => api<{ id?: string; partner?: { id: string } }>('/api/partners', {
       method: 'POST',
       body: {
-        name: name.trim(), code, country,
-        ...(legalName.trim() ? { legalName: legalName.trim() } : {}),
-        ...(retention ? { retentionMonths: r } : {}),
-        siteCodes,
-        ...(defaultSite && siteCodes.includes(defaultSite) ? { defaultSiteCode: defaultSite } : {}),
+        name: name().trim(), code: code(), country: country(),
+        ...(legalName().trim() ? { legalName: legalName().trim() } : {}),
+        ...(retention() ? { retentionMonths: r() } : {}),
+        siteCodes: siteCodes(),
+        ...(defaultSite() && siteCodes().includes(defaultSite()) ? { defaultSiteCode: defaultSite() } : {}),
       },
     }),
-    onSuccess: (res) => {
+    onSuccess: (res: { id?: string; partner?: { id: string } }) => {
       qc.invalidateQueries({ queryKey: ['partners'] });
       qc.invalidateQueries({ queryKey: ['console-overview'] });
       const id = res?.id ?? res?.partner?.id;
-      onClose();
+      props.onClose();
       if (id) nav(`/console/partners/${id}`);
     },
-    onError: (e) => setError(errorText(e)),
-  });
+    onError: (e: unknown) => setError(errorText(e)),
+  }));
 
-  const list = sites.data?.sites.filter((s) => s.active) ?? [];
+  const list = () => sites.data?.sites.filter((s) => s.active) ?? [];
   return (
-    <Dialog open={open} title="Add a partner" onClose={onClose} wide>
-      <form className="stack" onSubmit={(e) => { e.preventDefault(); setError(null); m.mutate(); }}>
-        <p className="muted">Use this for a company that did not register itself. It starts in onboarding. Invite its first user from the partner page afterwards.</p>
-        {error ? <Notice tone="bad">{error}</Notice> : null}
-        <div className="form-grid">
+    <Dialog open={props.open} title="Add a partner" onClose={props.onClose} wide>
+      <form class="stack" onSubmit={(e) => { e.preventDefault(); setError(null); m.mutate(); }}>
+        <p class="muted">Use this for a company that did not register itself. It starts in onboarding. Invite its first user from the partner page afterwards.</p>
+        <Show when={error()}>{(e) => <Notice tone="bad">{e()}</Notice>}</Show>
+        <div class="form-grid">
           <Field label="Company name">
-            {(p) => <input {...p} value={name} maxLength={120} required autoComplete="off" onChange={(e) => { setName(e.target.value); if (!codeEdited) setCode(suggestCompanyCode(e.target.value)); }} />}
+            {(p) => <input {...p} value={name()} maxLength={120} required autocomplete="off" onInput={(e) => { setName(e.currentTarget.value); if (!codeEdited()) setCode(suggestCompanyCode(e.currentTarget.value)); }} />}
           </Field>
-          <Field label="Code" hint="2 to 8 capital letters or digits. It starts every case reference." error={cProblem}>
-            {(p) => <input {...p} className="mono" value={code} maxLength={8} required autoComplete="off" onChange={(e) => { setCodeEdited(true); setCode(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, '')); }} />}
+          <Field label="Code" hint="2 to 8 capital letters or digits. It starts every case reference." error={cProblem()}>
+            {(p) => <input {...p} class="mono" value={code()} maxLength={8} required autocomplete="off" onInput={(e) => { setCodeEdited(true); setCode(e.currentTarget.value.toUpperCase().replace(/[^A-Z0-9]/g, '')); }} />}
           </Field>
           <Field label="Country">
             {(p) => (
-              <select {...p} value={country} required onChange={(e) => setCountry(e.target.value)}>
-                <option value="">Choose a country</option>
-                {COUNTRIES.map((c) => <option key={c.code} value={c.code}>{c.name}</option>)}
+              <select {...p} value={country()} required onChange={(e) => setCountry(e.currentTarget.value)}>
+                <option value="" selected={country() === ''}>Choose a country</option>
+                <For each={COUNTRIES}>{(c) => <option value={c.code} selected={c.code === country()}>{c.name}</option>}</For>
               </select>
             )}
           </Field>
           <Field label="Legal name (optional)">
-            {(p) => <input {...p} value={legalName} maxLength={160} autoComplete="off" onChange={(e) => setLegalName(e.target.value)} />}
+            {(p) => <input {...p} value={legalName()} maxLength={160} autocomplete="off" onInput={(e) => setLegalName(e.currentTarget.value)} />}
           </Field>
-          <Field label="Keep files after shipping, in months (optional)" hint="Between 1 and 180. Leave empty for the standard time." error={retentionOk ? null : 'Enter a whole number from 1 to 180.'}>
-            {(p) => <input {...p} type="number" min={1} max={180} value={retention} onChange={(e) => setRetention(e.target.value)} />}
+          <Field label="Keep files after shipping, in months (optional)" hint="Between 1 and 180. Leave empty for the standard time." error={retentionOk() ? null : 'Enter a whole number from 1 to 180.'}>
+            {(p) => <input {...p} type="number" min={1} max={180} value={retention()} onInput={(e) => setRetention(e.currentTarget.value)} />}
           </Field>
         </div>
-        {list.length ? (
-          <div className="stack">
-            <fieldset className="check-group">
+        <Show when={list().length}>
+          <div class="stack">
+            <fieldset class="check-group">
               <legend>Sites where this partner's cases may be made (optional)</legend>
-              {list.map((s) => (
-                <div className="check" key={s.code}>
-                  <input id={`add-site-${s.code}`} type="checkbox" checked={siteCodes.includes(s.code)} onChange={(e) => setSiteCodes(e.target.checked ? [...siteCodes, s.code] : siteCodes.filter((x) => x !== s.code))} />
-                  <label htmlFor={`add-site-${s.code}`}>{s.code}, {s.name}</label>
-                </div>
-              ))}
+              <For each={list()}>
+                {(s) => (
+                  <div class="check">
+                    <input id={`add-site-${s.code}`} type="checkbox" checked={siteCodes().includes(s.code)} onChange={(e) => setSiteCodes(e.currentTarget.checked ? [...siteCodes(), s.code] : siteCodes().filter((x) => x !== s.code))} />
+                    <label for={`add-site-${s.code}`}>{s.code}, {s.name}</label>
+                  </div>
+                )}
+              </For>
             </fieldset>
-            {siteCodes.length ? (
+            <Show when={siteCodes().length}>
               <Field label="Default site">
                 {(p) => (
-                  <select {...p} value={defaultSite} onChange={(e) => setDefaultSite(e.target.value)}>
-                    <option value="">None</option>
-                    {siteCodes.map((c) => <option key={c} value={c}>{c}</option>)}
+                  <select {...p} value={defaultSite()} onChange={(e) => setDefaultSite(e.currentTarget.value)}>
+                    <option value="" selected={defaultSite() === ''}>None</option>
+                    <For each={siteCodes()}>{(c) => <option value={c} selected={c === defaultSite()}>{c}</option>}</For>
                   </select>
                 )}
               </Field>
-            ) : null}
+            </Show>
           </div>
-        ) : null}
-        <IfMfa><p className="small muted">You will be asked for your authenticator code.</p></IfMfa>
-        <div className="row-end">
-          <Button onClick={onClose}>Cancel</Button>
-          <Button type="submit" variant="primary" loading={m.isPending} disabled={!valid}>Add partner</Button>
+        </Show>
+        <IfMfa><p class="small muted">You will be asked for your authenticator code.</p></IfMfa>
+        <div class="row-end">
+          <Button onClick={props.onClose}>Cancel</Button>
+          <Button type="submit" variant="primary" loading={m.isPending} disabled={!valid()}>Add partner</Button>
         </div>
       </form>
     </Dialog>

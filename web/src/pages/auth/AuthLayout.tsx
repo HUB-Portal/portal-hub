@@ -1,20 +1,20 @@
-import type { ReactNode } from 'react';
-import { Link } from 'react-router-dom';
+import { type JSX, Show } from 'solid-js';
+import { A } from '@solidjs/router';
 import { BrandMark } from '../../layout/Shell';
 
-export function AuthLayout({ title, intro, children, wide, xwide }: { title: string; intro?: ReactNode; children: ReactNode; wide?: boolean; xwide?: boolean }) {
+export function AuthLayout(props: { title: string; intro?: JSX.Element; children: JSX.Element; wide?: boolean; xwide?: boolean }) {
   return (
-    <div className="auth-wrap">
-      <main className="auth-card-outer" id="main">
-        <div className={`auth-card${wide ? ' wide' : ''}${xwide ? ' xwide' : ''}`}>
+    <div class="auth-wrap">
+      <main class="auth-card-outer" id="main">
+        <div class={`auth-card${props.wide ? ' wide' : ''}${props.xwide ? ' xwide' : ''}`}>
           <BrandMark />
-          <div className="stack-sm">
-            <h1>{title}</h1>
-            {intro ? <p className="muted">{intro}</p> : null}
+          <div class="stack-sm">
+            <h1>{props.title}</h1>
+            <Show when={props.intro}><p class="muted">{props.intro}</p></Show>
           </div>
-          {children}
-          <p className="muted small">
-            <Link to="/privacy">Privacy notice</Link>
+          {props.children}
+          <p class="muted small">
+            <A href="/privacy">Privacy notice</A>
           </p>
         </div>
       </main>

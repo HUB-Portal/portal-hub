@@ -1,6 +1,6 @@
-import { useEffect, useState } from 'react';
-import { Link, NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
-import { Activity, Boxes, Building2, FileCheck2, Inbox, KeyRound, ListChecks, LogOut, Menu, MapPin, Package, PlugZap, Rocket, ScrollText, ShieldAlert, ShieldCheck, Tag, Upload, UserCircle, UserCog, Users, Webhook, Workflow, X } from 'lucide-react';
+import { createEffect, createSignal, For, type JSX, on, Show } from 'solid-js';
+import { A, useLocation, useNavigate } from '@solidjs/router';
+import { Activity, Boxes, Building2, FileCheck2, Inbox, KeyRound, ListChecks, LogOut, Menu, MapPin, Package, PlugZap, Rocket, ScrollText, ShieldAlert, ShieldCheck, Tag, UserCircle, UserCog, Users, Webhook, Workflow, X } from 'lucide-solid';
 import { useAuth, useMenu } from '../lib/auth';
 import { useCaseCounts, useOrgLogo } from '../lib/orgApi';
 import { Button, Notice } from '../ui/Common';
@@ -9,27 +9,28 @@ import { OrgLogoImage } from '../ui/OrgLogo';
 
 export function BrandMark() {
   return (
-    <div className="brand">
+    <div class="brand">
       <span>Portal Hub</span>
     </div>
   );
 }
 
-interface NavItem { to: string; label: string; icon: typeof Upload; end?: boolean; show: boolean; /** A number on the menu item, for example the cases that need attention. */ badge?: number }
+interface NavItem { to: string; label: string; icon: typeof Package; end?: boolean; show: boolean; /** A number on the menu item, for example the cases that need attention. */ badge?: number }
 
-export function Shell() {
+/** The frame around every signed in page: the menu on the left, the top bar, and the page itself (the nested route) in the middle. */
+export function Shell(props: { children?: JSX.Element }) {
   const { me, can, isKline, signOut } = useAuth();
   const menu = useMenu();
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = createSignal(false);
   const loc = useLocation();
   const nav = useNavigate();
-  useEffect(() => setOpen(false), [loc.pathname]);
-  const logo = useOrgLogo(!isKline && can('org.read'));
-  const showLogo = !isKline && logo.hasLogo === true && can('org.read');
-  const onCompanyPage = loc.pathname.startsWith('/portal/company');
-  const counts = useCaseCounts(!isKline && can('case.read'));
+  createEffect(on(() => loc.pathname, () => setOpen(false)));
+  const logo = useOrgLogo(() => !isKline() && can('org.read'));
+  const showLogo = () => !isKline() && logo.hasLogo === true && can('org.read');
+  const onCompanyPage = () => loc.pathname.startsWith('/portal/company');
+  const counts = useCaseCounts(() => !isKline() && can('case.read'));
 
-  const partnerItems: NavItem[] = [
+  const partnerItems = (): NavItem[] => [
     { to: '/portal', label: 'Direct manufacturing', icon: Package, end: true, show: can('case.write') },
     { to: '/portal/getting-started', label: 'Getting started', icon: Rocket, show: true },
     { to: '/portal/cases', label: 'Cases', icon: ListChecks, show: can('case.read'), badge: counts.data?.attention },
@@ -44,7 +45,7 @@ export function Shell() {
     { to: '/portal/settings/bags', label: 'Bag labels', icon: Tag, show: can('org.edit') },
     { to: '/portal/account', label: 'Account', icon: UserCircle, show: true },
   ];
-  const klineItems: NavItem[] = [
+  const klineItems = (): NavItem[] => [
     { to: '/console', label: 'Overview', icon: ShieldCheck, end: true, show: can('case.read') },
     { to: '/console/intake', label: 'Intake', icon: Inbox, show: can('intake.manage') },
     { to: '/console/cases', label: 'Cases', icon: ListChecks, show: can('case.read') },
@@ -59,7 +60,7 @@ export function Shell() {
     { to: '/console/audit', label: 'Audit log', icon: ScrollText, show: can('audit.read') },
     { to: '/console/account', label: 'Account', icon: UserCircle, show: true },
   ];
-  const items: NavItem[] = isKline ? klineItems : partnerItems;
+  const items = () => (isKline() ? klineItems() : partnerItems()).filter((i) => i.show);
 
   async function out() {
     await signOut();
@@ -67,55 +68,57 @@ export function Shell() {
   }
 
   return (
-    <div className="shell">
-      <a className="skip-link" href="#main">Skip to main content</a>
-      <aside className={`sidebar${open ? ' open' : ''}`} aria-label="Main">
-        <div className="row" style={{ justifyContent: 'space-between', flexWrap: 'nowrap' }}>
+    <div class="shell">
+      <a class="skip-link" href="#main">Skip to main content</a>
+      <aside class={`sidebar${open() ? ' open' : ''}`} aria-label="Main">
+        <div class="row" style={{ 'justify-content': 'space-between', 'flex-wrap': 'nowrap' }}>
           <BrandMark />
-          <button type="button" className="icon-btn menu-btn" aria-label="Close menu" onClick={() => setOpen(false)} style={{ color: '#fff' }}><X size={20} aria-hidden="true" /></button>
+          <button type="button" class="icon-btn menu-btn" aria-label="Close menu" onClick={() => setOpen(false)} style={{ color: '#fff' }}><X size={20} aria-hidden="true" /></button>
         </div>
-        <nav className="nav" aria-label="Sections">
-          {items.filter((i) => i.show).map((i) => (
-            <NavLink key={i.to} to={i.to} end={i.end}>
-              <i.icon size={18} aria-hidden="true" />
-              {i.label}
-              {i.badge ? <span className="nav-badge" title={`${i.badge} to look at`}>{i.badge}<span className="sr-only"> to look at</span></span> : null}
-            </NavLink>
-          ))}
+        <nav class="nav" aria-label="Sections">
+          <For each={items()}>
+            {(i) => (
+              <A href={i.to} end={i.end}>
+                <i.icon size={18} aria-hidden="true" />
+                {i.label}
+                <Show when={i.badge}>{(n) => <span class="nav-badge" title={`${n()} to look at`}>{n()}<span class="sr-only"> to look at</span></span>}</Show>
+              </A>
+            )}
+          </For>
         </nav>
-        <div className="sidebar-foot">
+        <div class="sidebar-foot">
           <div>
-            <div style={{ fontWeight: 600, color: '#fff' }}>{me?.user.name}</div>
-            <div>{me?.org?.name}</div>
+            <div style={{ 'font-weight': 600, color: '#fff' }}>{me()?.user.name}</div>
+            <div>{me()?.org?.name}</div>
           </div>
           <Button onClick={out}><LogOut size={16} aria-hidden="true" /> Sign out</Button>
         </div>
       </aside>
-      <div className={`scrim${open ? ' open' : ''}`} onClick={() => setOpen(false)} aria-hidden="true" />
-      <div className="main">
-        <header className="topbar">
-          <div className="row">
-            <button type="button" className="icon-btn menu-btn" aria-label="Open menu" aria-expanded={open} onClick={() => setOpen(true)}><Menu size={20} aria-hidden="true" /></button>
-            <span className="topbar-brand">
-              {showLogo ? <OrgLogoImage name={me?.org?.name ?? 'Company'} version={logo.version} /> : null}
-              <span className="topbar-title">{me?.org?.name}</span>
+      <div class={`scrim${open() ? ' open' : ''}`} onClick={() => setOpen(false)} aria-hidden="true" />
+      <div class="main">
+        <header class="topbar">
+          <div class="row">
+            <button type="button" class="icon-btn menu-btn" aria-label="Open menu" aria-expanded={open()} onClick={() => setOpen(true)}><Menu size={20} aria-hidden="true" /></button>
+            <span class="topbar-brand">
+              <Show when={showLogo()}><OrgLogoImage name={me()?.org?.name ?? 'Company'} version={logo.version} /></Show>
+              <span class="topbar-title">{me()?.org?.name}</span>
             </span>
           </div>
-          <NotificationBell caseBase={isKline ? '/console/cases' : '/portal/cases'} />
+          <NotificationBell caseBase={isKline() ? '/console/cases' : '/portal/cases'} />
         </header>
-        {!isKline && logo.hasLogo === false ? (
-          <div className="logo-banner">
+        <Show when={!isKline() && logo.hasLogo === false}>
+          <div class="logo-banner">
             <Notice
               tone="warn"
               title="Add your company logo"
-              action={onCompanyPage || !can('org.logo') ? undefined : <Link className="btn btn-sm" to="/portal/company#logo">Add logo</Link>}
+              action={onCompanyPage() || !can('org.logo') ? undefined : <A class="btn btn-sm" href="/portal/company#logo">Add logo</A>}
             >
               It is needed so your team and K Line can recognise your account.{can('org.logo') ? '' : ' Ask a colleague to add it.'}
             </Notice>
           </div>
-        ) : null}
+        </Show>
         <main id="main" tabIndex={-1}>
-          <Outlet />
+          {props.children}
         </main>
       </div>
     </div>

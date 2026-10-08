@@ -1,5 +1,5 @@
-import { useEffect, useState, type FormEvent } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { createEffect, createSignal, onCleanup, Show } from 'solid-js';
+import { useNavigate } from '@solidjs/router';
 import { api, ApiError, setCsrf } from '../../lib/api';
 import { homeFor, useAuth } from '../../lib/auth';
 import { Button, Field, Notice } from '../../ui/Common';
@@ -8,25 +8,25 @@ import { AuthLayout } from './AuthLayout';
 export default function Mfa() {
   const nav = useNavigate();
   const { me, refresh, signOut } = useAuth();
-  const [recovery, setRecovery] = useState(false);
-  const [code, setCode] = useState('');
-  const [error, setError] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
+  const [recovery, setRecovery] = createSignal(false);
+  const [code, setCode] = createSignal('');
+  const [error, setError] = createSignal<string | null>(null);
+  const [busy, setBusy] = createSignal(false);
 
   // Demo mode only: keep the shown code fresh.
-  const demoOn = me?.demo.enabled;
-  useEffect(() => {
-    if (!demoOn) return;
+  const demoOn = () => me()?.demo.enabled;
+  createEffect(() => {
+    if (!demoOn()) return;
     const t = setInterval(() => { void refresh(); }, 5000);
-    return () => clearInterval(t);
-  }, [demoOn, refresh]);
+    onCleanup(() => clearInterval(t));
+  });
 
-  async function submit(e: FormEvent) {
+  async function submit(e: SubmitEvent) {
     e.preventDefault();
     setError(null);
     setBusy(true);
     try {
-      const r = await api<{ csrfToken: string }>(recovery ? '/api/auth/mfa/recovery' : '/api/auth/mfa/verify', { method: 'POST', body: { code: code.trim() }, quiet401: true });
+      const r = await api<{ csrfToken: string }>(recovery() ? '/api/auth/mfa/recovery' : '/api/auth/mfa/verify', { method: 'POST', body: { code: code().trim() }, quiet401: true });
       setCsrf(r.csrfToken);
       const next = await refresh();
       nav(homeFor(next), { replace: true });
@@ -50,26 +50,28 @@ export default function Mfa() {
 
   return (
     <AuthLayout
-      title={recovery ? 'Use a recovery code' : 'Enter your code'}
-      intro={recovery ? 'Enter one of the recovery codes you saved when you set up your authenticator. Each code works once.' : 'Open your authenticator app and enter the 6 digit code for Portal Hub.'}
+      title={recovery() ? 'Use a recovery code' : 'Enter your code'}
+      intro={recovery() ? 'Enter one of the recovery codes you saved when you set up your authenticator. Each code works once.' : 'Open your authenticator app and enter the 6 digit code for Portal Hub.'}
     >
-      <form onSubmit={submit} className="stack">
-        {error ? <Notice tone="bad">{error}</Notice> : null}
-        <Field label={recovery ? 'Recovery code' : 'Authenticator code'}>
+      <form onSubmit={submit} class="stack">
+        <Show when={error()}><Notice tone="bad">{error()}</Notice></Show>
+        <Field label={recovery() ? 'Recovery code' : 'Authenticator code'}>
           {(p) => (
-            <input {...p} value={code} onChange={(e) => setCode(e.target.value)} className={recovery ? undefined : 'code-input'} inputMode={recovery ? 'text' : 'numeric'} autoComplete="one-time-code" maxLength={24} required autoFocus />
+            <input {...p} value={code()} onInput={(e) => setCode(e.currentTarget.value)} class={recovery() ? undefined : 'code-input'} inputMode={recovery() ? 'text' : 'numeric'} autocomplete="one-time-code" maxLength={24} required autofocus />
           )}
         </Field>
-        <Button type="submit" variant="primary" loading={busy} disabled={code.trim().length < 6}>Continue</Button>
+        <Button type="submit" variant="primary" loading={busy()} disabled={code().trim().length < 6}>Continue</Button>
       </form>
-      {me?.demo.code ? (
-        <Notice tone="info" title="Demo mode">
-          The current code is <strong className="mono">{me.demo.code.code}</strong>. It changes in {me.demo.code.secondsLeft} seconds.
-        </Notice>
-      ) : null}
-      <div className="row">
+      <Show when={me()?.demo.code}>
+        {(c) => (
+          <Notice tone="info" title="Demo mode">
+            The current code is <strong class="mono">{c().code}</strong>. It changes in {c().secondsLeft} seconds.
+          </Notice>
+        )}
+      </Show>
+      <div class="row">
         <Button variant="ghost" size="sm" onClick={() => { setRecovery((v) => !v); setCode(''); setError(null); }}>
-          {recovery ? 'Use my authenticator app' : 'Use a recovery code instead'}
+          {recovery() ? 'Use my authenticator app' : 'Use a recovery code instead'}
         </Button>
         <Button variant="ghost" size="sm" onClick={other}>Use a different account</Button>
       </div>

@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { createEffect, createMemo, on, onCleanup } from 'solid-js';
 import { ApiError } from './api';
 import type { BulkGateway } from './bulkGateway';
 import { canSyncDetails, changedDetails, detailsOf, isDetailProblem, problemsOf, type Row } from './bulkRows';
@@ -9,14 +9,15 @@ const DELAY_MS = 700;
 /**
  * Writes what the partner changes on a card (patient ID, names, instructions) to its draft case, a moment after the last keystroke. A change that
  * is not valid yet (a name that is too long) waits until it is. `flush` sends what is pending at once, before the case is sent to K Line.
+ * `rows` is the reactive list of cards (a store): the hook reads it, it never copies it.
  */
-export function useDetailSync(rows: Row[], rowsRef: { current: Row[] }, patch: (key: string, p: Partial<Row>) => void, gateway: BulkGateway) {
-  const timers = useRef(new Map<string, ReturnType<typeof setTimeout>>());
+export function useDetailSync(rows: Row[], patch: (key: string, p: Partial<Row>) => void, gateway: BulkGateway) {
+  const timers = new Map<string, ReturnType<typeof setTimeout>>();
 
   const cancel = (key: string) => {
-    const t = timers.current.get(key);
+    const t = timers.get(key);
     if (t) clearTimeout(t);
-    timers.current.delete(key);
+    timers.delete(key);
   };
 
   async function write(key: string, caseUuid: string, changes: Record<string, unknown>, sentDetails: ReturnType<typeof detailsOf>) {
@@ -29,20 +30,20 @@ export function useDetailSync(rows: Row[], rowsRef: { current: Row[] }, patch: (
   }
 
   // Which edits are pending is told by this key: it changes when a row's stage or details change, and not for upload progress.
-  const signature = rows.map((r) => `${r.key}|${r.stage}|${r.patientId}|${r.firstName}|${r.lastName}|${r.instructions}|${r.synced?.firstName}|${r.synced?.lastName}|${r.synced?.patientId}|${r.synced?.instructions}`).join('\n');
-  useEffect(() => {
-    for (const r of rowsRef.current) {
+  const signature = createMemo(() => rows.map((r) => `${r.key}|${r.stage}|${r.patientId}|${r.firstName}|${r.lastName}|${r.instructions}|${r.synced?.firstName}|${r.synced?.lastName}|${r.synced?.patientId}|${r.synced?.instructions}`).join('\n'));
+  createEffect(on(signature, () => {
+    for (const r of rows) {
       cancel(r.key);
       if (!canSyncDetails(r) || problemsOf(r).some(isDetailProblem)) continue;
       const changes = changedDetails(r);
       if (!Object.keys(changes).length) continue;
       const sentDetails = detailsOf(r);
-      timers.current.set(r.key, setTimeout(() => { timers.current.delete(r.key); void write(r.key, r.caseUuid!, changes, sentDetails); }, DELAY_MS));
+      const caseUuid = r.caseUuid!;
+      timers.set(r.key, setTimeout(() => { timers.delete(r.key); void write(r.key, caseUuid, changes, sentDetails); }, DELAY_MS));
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [signature]);
+  }));
 
-  useEffect(() => () => { for (const t of timers.current.values()) clearTimeout(t); }, []);
+  onCleanup(() => { for (const t of timers.values()) clearTimeout(t); });
 
   /** Sends the pending change of one card now (and drops its timer). Resolves when the server has it. */
   async function flush(r: Row): Promise<void> {

@@ -1,6 +1,6 @@
 // Types and small helpers for phase 5: company profile, onboarding checklist, public configuration.
 // Response shapes follow docs/PHASE5_CONTRACT.md. Readers are tolerant of small differences in field names.
-import { useQuery } from '@tanstack/react-query';
+import { createQuery } from '@tanstack/solid-query';
 import { api, ApiError } from './api';
 import { PRIVACY_VERSION } from './signup';
 import { readCaseAddress, isCompleteCaseAddress, type CaseAddress } from './caseAddress';
@@ -25,7 +25,7 @@ export const agreementLabel = (k: string) => AGREEMENT_KINDS.find((a) => a.id ==
 export interface PublicConfig { privacyEmail: string | null; supportEmail: string | null; signupEnabled: boolean; privacyVersion: string; googleSignIn: boolean; /** False while two factor sign in is switched off on the server. */ mfaRequired: boolean }
 
 export function usePublicConfig() {
-  return useQuery({
+  return createQuery(() => ({
     queryKey: ['public-config'],
     queryFn: async (): Promise<PublicConfig> => {
       const r = await api<Partial<PublicConfig>>('/api/public/config', { quiet401: true });
@@ -40,26 +40,27 @@ export function usePublicConfig() {
     },
     retry: false,
     staleTime: 5 * 60_000,
-  });
+  }));
 }
 
 export interface CaseCounts { all: number; attention: number; drafts: number; draftsWithErrors: number }
 
 /** Counts for the filter chips, the Cases menu badge and the link on Direct manufacturing. Refreshes now and then, and when the cases change. */
-export function useCaseCounts(enabled = true) {
-  return useQuery({
+export function useCaseCounts(enabled: () => boolean = () => true) {
+  return createQuery(() => ({
     queryKey: ['case-counts'],
-    enabled,
+    enabled: enabled(),
     queryFn: () => api<CaseCounts>('/api/cases/counts'),
     staleTime: 30_000,
     refetchInterval: 60_000,
     retry: false,
-  });
+  }));
 }
 
-/** True when sign in asks for an authenticator code. Texts about the authenticator are only shown then. False until the answer is known. */
-export function useMfaRequired(): boolean {
-  return !!usePublicConfig().data?.mfaRequired;
+/** Reads true when sign in asks for an authenticator code. Texts about the authenticator are only shown then. False until the answer is known. */
+export function useMfaRequired(): () => boolean {
+  const config = usePublicConfig();
+  return () => !!config.data?.mfaRequired;
 }
 
 // ---- onboarding checklist -----------------------------------------------------------------------------------------
@@ -157,8 +158,8 @@ export function profileBody(p: Profile): Record<string, unknown> {
 }
 
 /** The company profile, shared by the pages that need it. */
-export function useProfile(enabled = true) {
-  return useQuery({ queryKey: ['org-profile'], enabled, queryFn: async () => normalizeProfile(await api('/api/org/profile')) });
+export function useProfile(enabled: () => boolean = () => true) {
+  return createQuery(() => ({ queryKey: ['org-profile'], enabled: enabled(), queryFn: async () => normalizeProfile(await api('/api/org/profile')) }));
 }
 
 /**
@@ -185,8 +186,8 @@ export function normalizeUserCaseAddress(raw: any): UserCaseAddress {
 /** Query key shared by the Account card, the Direct manufacturing page and the overview. Invalidate it after any address change. */
 export const USER_CASE_ADDRESS_KEY = ['case-address'] as const;
 
-export function useUserCaseAddress(enabled = true) {
-  return useQuery({ queryKey: USER_CASE_ADDRESS_KEY, enabled, retry: false, queryFn: async () => normalizeUserCaseAddress(await api('/api/account/case-address')) });
+export function useUserCaseAddress(enabled: () => boolean = () => true) {
+  return createQuery(() => ({ queryKey: USER_CASE_ADDRESS_KEY, enabled: enabled(), retry: false, queryFn: async () => normalizeUserCaseAddress(await api('/api/account/case-address')) }));
 }
 
 /** The logo of the signed in company. Shared by the top bar, the banner and the checklist. */
@@ -199,10 +200,15 @@ export interface OrgLogoState {
 
 export function logoUrl(version: string): string { return `/api/org/logo?v=${encodeURIComponent(version)}`; }
 
-export function useOrgLogo(enabled: boolean): OrgLogoState & { orgName: string | undefined } {
-  const q = useQuery({ queryKey: ['org'], enabled, queryFn: () => api<OrgInfo>('/api/org'), retry: false, staleTime: 60_000 });
-  const l = q.data?.logo;
-  return { hasLogo: typeof l?.hasLogo === 'boolean' ? l.hasLogo : undefined, version: l?.version !== undefined && l?.version !== null ? String(l.version) : '0', orgName: q.data?.name };
+/** Reactive: read `hasLogo`, `version` and `orgName` inside JSX or an effect, and do not destructure the result. */
+export function useOrgLogo(enabled: () => boolean): OrgLogoState & { orgName: string | undefined } {
+  const q = createQuery(() => ({ queryKey: ['org'], enabled: enabled(), queryFn: () => api<OrgInfo>('/api/org'), retry: false, staleTime: 60_000 }));
+  const logo = () => q.data?.logo;
+  return {
+    get hasLogo() { const l = logo(); return typeof l?.hasLogo === 'boolean' ? l.hasLogo : undefined; },
+    get version() { const l = logo(); return l?.version !== undefined && l?.version !== null ? String(l.version) : '0'; },
+    get orgName() { return q.data?.name; },
+  };
 }
 
 export interface Brand { id: string; name: string; hasLogo: boolean | undefined }
@@ -278,6 +284,6 @@ export function normalizeDemoRegistrations(raw: any): DemoRegistration[] {
 }
 
 /** The onboarding checklist of the signed in company. Shared with the overview (same query key). */
-export function useOnboarding(enabled: boolean) {
-  return useQuery({ queryKey: ['onboarding'], enabled, queryFn: () => api<Onboarding>('/api/org/onboarding'), retry: false });
+export function useOnboarding(enabled: () => boolean) {
+  return createQuery(() => ({ queryKey: ['onboarding'], enabled: enabled(), queryFn: () => api<Onboarding>('/api/org/onboarding'), retry: false }));
 }

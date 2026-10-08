@@ -19,7 +19,7 @@ All demo companies are fictional: Acme Aligners, Contoso Smile and Fabrikam Dent
 * Node.js 22 or newer and npm (the repository is an npm workspace).
 * Docker, for the development database (PostgreSQL 16 on port 5433). ClamAV is optional in development.
 * PostgreSQL 16 in production, and ClamAV (clamd over TCP) for malware scanning.
-* A modern browser. The web app is React 18 and Vite 6.
+* A modern browser. The web app is SolidJS 1.9 and Vite 6 (see `docs/WEB_SOLIDJS.md`).
 
 ## Quick start (development)
 

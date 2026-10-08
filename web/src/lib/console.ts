@@ -1,5 +1,5 @@
 // Types and shared queries for the K Line staff console. Response shapes follow docs/PHASE3_CONTRACT.md.
-import { useQuery } from '@tanstack/react-query';
+import { createQuery } from '@tanstack/solid-query';
 import { api } from './api';
 import { useAuth } from './auth';
 import type { CaseItem } from './types';
@@ -32,29 +32,31 @@ export interface SiteRow {
   openCases?: number;
 }
 
-export function useOverview(enabled = true) {
-  return useQuery({ queryKey: ['console-overview'], queryFn: () => api<ConsoleOverview>('/api/console/overview'), enabled, staleTime: 30_000 });
+export function useOverview(enabled: () => boolean = () => true) {
+  return createQuery(() => ({ queryKey: ['console-overview'], queryFn: () => api<ConsoleOverview>('/api/console/overview'), enabled: enabled(), staleTime: 30_000 }));
 }
 
 /** All sites; only for users with admin.sites. */
 export function useSites() {
   const { can } = useAuth();
-  return useQuery({ queryKey: ['sites'], queryFn: () => api<{ items: SiteRow[] }>('/api/sites'), select: (d) => ({ sites: d.items }), enabled: can('admin.sites'), staleTime: 60_000 });
+  return createQuery(() => ({ queryKey: ['sites'], queryFn: () => api<{ items: SiteRow[] }>('/api/sites'), select: (d: { items: SiteRow[] }) => ({ sites: d.items }), enabled: can('admin.sites'), staleTime: 60_000 }));
 }
 
 /** Partner and site options for filters. Staff who can manage partners read the partner list, others use the overview. */
 export function useFilterOptions() {
   const { can } = useAuth();
-  const adminPartners = can('admin.partners');
-  const ov = useOverview(can('case.read') && !adminPartners);
-  const list = useQuery({
+  const adminPartners = () => can('admin.partners');
+  const ov = useOverview(() => can('case.read') && !adminPartners());
+  const list = createQuery(() => ({
     queryKey: ['partners'],
     queryFn: () => api<{ items: { id: string; name: string; code: string; status: string }[] }>('/api/partners'),
-    enabled: adminPartners,
+    enabled: adminPartners(),
     staleTime: 60_000,
-  });
+  }));
   const sites = useSites();
-  const partners = adminPartners ? (list.data?.items ?? []) : (ov.data?.partners ?? []);
-  const siteCodes = sites.data?.sites.map((s) => s.code) ?? ov.data?.siteLoad.map((s) => s.siteCode) ?? [];
-  return { partners, siteCodes };
+  /** Both are reactive: read `partners` and `siteCodes` inside JSX or an effect, and do not destructure them. */
+  return {
+    get partners() { return adminPartners() ? (list.data?.items ?? []) : (ov.data?.partners ?? []); },
+    get siteCodes() { return sites.data?.sites.map((s) => s.code) ?? ov.data?.siteLoad.map((s) => s.siteCode) ?? []; },
+  };
 }

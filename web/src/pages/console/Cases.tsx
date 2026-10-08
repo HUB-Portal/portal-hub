@@ -1,6 +1,6 @@
-import { useEffect, useState } from 'react';
-import { Link, useSearchParams } from 'react-router-dom';
-import { keepPreviousData, useQuery } from '@tanstack/react-query';
+import { createEffect, createSignal, For, onCleanup, Show } from 'solid-js';
+import { A, useSearchParams } from '@solidjs/router';
+import { createQuery, keepPreviousData } from '@tanstack/solid-query';
 import { api, errorText, qs } from '../../lib/api';
 import { useFilterOptions, type ConsoleCaseList } from '../../lib/console';
 import { formatDate, formatNumber, isLate, statusLabel } from '../../lib/format';
@@ -15,117 +15,121 @@ const SIMPLE_FILTERS: { id: string; label: string }[] = [
 ];
 const STATUSES = ['draft', 'submitted', 'on_hold', 'ready', 'received', 'in_production', 'shipped', 'delivered', 'cancelled'];
 
+/** A search parameter as plain text: empty when it is missing. */
+const one = (v: string | string[] | undefined): string => (Array.isArray(v) ? (v[0] ?? '') : (v ?? ''));
+
 export default function ConsoleCases() {
   const [params, setParams] = useSearchParams();
-  const orgId = params.get('orgId') ?? '';
-  const siteCode = params.get('siteCode') ?? '';
-  const status = params.get('status') ?? '';
-  const mode = params.get('mode') ?? '';
-  const page = Math.max(1, Number(params.get('page') ?? 1) || 1);
-  const urlSearch = params.get('search') ?? '';
-  const [text, setText] = useState(urlSearch);
+  const orgId = () => one(params.orgId);
+  const siteCode = () => one(params.siteCode);
+  const status = () => one(params.status);
+  const mode = () => one(params.mode);
+  const page = () => Math.max(1, Number(params.page ?? 1) || 1);
+  const urlSearch = () => one(params.search);
+  const [text, setText] = createSignal(urlSearch());
   const opts = useFilterOptions();
 
-  useEffect(() => {
-    if (text === urlSearch) return;
-    const t = setTimeout(() => {
-      const next = new URLSearchParams(params);
-      if (text) next.set('search', text); else next.delete('search');
-      next.delete('page');
-      setParams(next, { replace: true });
+  createEffect(() => {
+    const t = text();
+    if (t === urlSearch()) return;
+    const h = setTimeout(() => {
+      setParams({ search: t || undefined, page: undefined }, { replace: true });
     }, 350);
-    return () => clearTimeout(t);
-  }, [text, urlSearch, params, setParams]);
-
-  const q = useQuery({
-    queryKey: ['console-cases', { orgId, siteCode, status, mode, page, search: urlSearch }],
-    queryFn: () => api<ConsoleCaseList>(`/api/console/cases${qs({ search: urlSearch, status, orgId, siteCode, mode, page, pageSize: 25 })}`),
-    placeholderData: keepPreviousData,
+    onCleanup(() => clearTimeout(h));
   });
 
+  const q = createQuery(() => ({
+    queryKey: ['console-cases', { orgId: orgId(), siteCode: siteCode(), status: status(), mode: mode(), page: page(), search: urlSearch() }],
+    queryFn: () => api<ConsoleCaseList>(`/api/console/cases${qs({ search: urlSearch(), status: status(), orgId: orgId(), siteCode: siteCode(), mode: mode(), page: page(), pageSize: 25 })}`),
+    placeholderData: keepPreviousData,
+  }));
+
   function setParam(key: string, value: string) {
-    const next = new URLSearchParams(params);
-    if (value) next.set(key, value); else next.delete(key);
-    next.delete('page');
-    setParams(next);
+    setParams({ [key]: value || undefined, page: undefined });
   }
-  const filtered = !!(orgId || siteCode || status || mode || urlSearch);
+  const filtered = () => !!(orgId() || siteCode() || status() || mode() || urlSearch());
 
   return (
-    <div className="page">
+    <div class="page">
       <PageHeader title="Cases" subtitle="Every case from every partner." />
       <Card>
-        <div className="toolbar">
-          <div className="field">
-            <label htmlFor="c-search">Search</label>
-            <input id="c-search" type="search" value={text} onChange={(e) => setText(e.target.value)} placeholder="Reference, case ID or exact patient name" autoComplete="off" />
+        <div class="toolbar">
+          <div class="field">
+            <label for="c-search">Search</label>
+            <input id="c-search" type="search" value={text()} onInput={(e) => setText(e.currentTarget.value)} placeholder="Reference, case ID or exact patient name" autocomplete="off" />
           </div>
-          <div className="field" style={{ minWidth: 160, flexBasis: 170 }}>
-            <label htmlFor="c-partner">Partner</label>
-            <select id="c-partner" value={orgId} onChange={(e) => setParam('orgId', e.target.value)}>
-              <option value="">All partners</option>
-              {opts.partners.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+          <div class="field" style={{ 'min-width': '160px', 'flex-basis': '170px' }}>
+            <label for="c-partner">Partner</label>
+            <select id="c-partner" value={orgId()} onChange={(e) => setParam('orgId', e.currentTarget.value)}>
+              <option value="" selected={orgId() === ''}>All partners</option>
+              <For each={opts.partners}>{(p) => <option value={p.id} selected={p.id === orgId()}>{p.name}</option>}</For>
             </select>
           </div>
-          <div className="field" style={{ minWidth: 130, flexBasis: 140 }}>
-            <label htmlFor="c-site">Site</label>
-            <select id="c-site" value={siteCode} onChange={(e) => setParam('siteCode', e.target.value)}>
-              <option value="">All sites</option>
-              {opts.siteCodes.map((s) => <option key={s} value={s}>{s}</option>)}
+          <div class="field" style={{ 'min-width': '130px', 'flex-basis': '140px' }}>
+            <label for="c-site">Site</label>
+            <select id="c-site" value={siteCode()} onChange={(e) => setParam('siteCode', e.currentTarget.value)}>
+              <option value="" selected={siteCode() === ''}>All sites</option>
+              <For each={opts.siteCodes}>{(s) => <option value={s} selected={s === siteCode()}>{s}</option>}</For>
             </select>
           </div>
-          <div className="field" style={{ minWidth: 150, flexBasis: 160 }}>
-            <label htmlFor="c-status">Status</label>
-            <select id="c-status" value={status} onChange={(e) => setParam('status', e.target.value)}>
-              <option value="">Any status</option>
-              {SIMPLE_FILTERS.map((f) => <option key={f.id} value={f.id}>{f.label}</option>)}
-              {STATUSES.map((s) => <option key={s} value={s}>{statusLabel(s)}</option>)}
+          <div class="field" style={{ 'min-width': '150px', 'flex-basis': '160px' }}>
+            <label for="c-status">Status</label>
+            <select id="c-status" value={status()} onChange={(e) => setParam('status', e.currentTarget.value)}>
+              <option value="" selected={status() === ''}>Any status</option>
+              <For each={SIMPLE_FILTERS}>{(f) => <option value={f.id} selected={f.id === status()}>{f.label}</option>}</For>
+              <For each={STATUSES}>{(s) => <option value={s} selected={s === status()}>{statusLabel(s)}</option>}</For>
             </select>
           </div>
-          <div className="field" style={{ minWidth: 150, flexBasis: 160 }}>
-            <label htmlFor="c-mode">Mode</label>
-            <select id="c-mode" value={mode} onChange={(e) => setParam('mode', e.target.value)}>
-              <option value="">Any mode</option>
-              <option value="standard">Standard</option>
-              <option value="direct">Direct manufacturing</option>
+          <div class="field" style={{ 'min-width': '150px', 'flex-basis': '160px' }}>
+            <label for="c-mode">Mode</label>
+            <select id="c-mode" value={mode()} onChange={(e) => setParam('mode', e.currentTarget.value)}>
+              <option value="" selected={mode() === ''}>Any mode</option>
+              <option value="standard" selected={mode() === 'standard'}>Standard</option>
+              <option value="direct" selected={mode() === 'direct'}>Direct manufacturing</option>
             </select>
           </div>
-          {filtered ? <Button onClick={() => { setText(''); setParams({}); }}>Clear filters</Button> : null}
+          <Show when={filtered()}>
+            <Button onClick={() => { setText(''); setParams({ orgId: undefined, siteCode: undefined, status: undefined, mode: undefined, page: undefined, search: undefined }); }}>Clear filters</Button>
+          </Show>
         </div>
-        {q.isError ? <Notice tone="bad" action={<Button size="sm" onClick={() => q.refetch()}>Try again</Button>}>{errorText(q.error)}</Notice> : null}
-        {q.isLoading ? <Spinner /> : null}
-        {q.data && q.data.items.length === 0 ? <Empty title="No cases found">{filtered ? 'Try a different search or filter.' : 'Cases from partners will appear here.'}</Empty> : null}
-        {q.data && q.data.items.length ? (
-          <>
-            <p className="muted small" role="status">{formatNumber(q.data.total)} {q.data.total === 1 ? 'case' : 'cases'}</p>
-            <div className="table-wrap">
-              <table className="table">
-                <thead>
-                  <tr><th>Reference</th><th>Partner</th><th>Case ID</th><th>Patient</th><th>Status</th><th>Site</th><th>Due</th><th>Checks</th></tr>
-                </thead>
-                <tbody>
-                  {q.data.items.map((c) => (
-                    <tr key={c.id}>
-                      <td className="link-cell nowrap">
-                        <Link to={`/console/cases/${c.id}`}>{c.ref}</Link>
-                        {c.manufacturingMode === 'direct' ? <div><Badge tone="info">Direct</Badge></div> : null}
-                        <KindBadge c={c} />
-                      </td>
-                      <td>{c.orgName ?? ''}</td>
-                      <td>{c.caseId ?? <span className="muted">None</span>}</td>
-                      <td>{c.patientMasked ? <span className="masked">{c.patientMasked}</span> : <span className="muted">Not given</span>}</td>
-                      <td><StatusBadge c={c} staff /></td>
-                      <td>{c.siteCode ?? <span className="muted">None</span>}</td>
-                      <td className="nowrap">{c.dueDate ? <span className={isLate(c.dueDate, c.status) ? 'late' : undefined}>{formatDate(c.dueDate)}{isLate(c.dueDate, c.status) ? ' (late)' : ''}</span> : <span className="muted">Not set</span>}</td>
-                      <td><CaseChecks c={c} /></td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-            <Pagination page={q.data.page} pageSize={q.data.pageSize} total={q.data.total} onPage={(p) => { const next = new URLSearchParams(params); next.set('page', String(p)); setParams(next); }} />
-          </>
-        ) : null}
+        <Show when={q.isError}><Notice tone="bad" action={<Button size="sm" onClick={() => q.refetch()}>Try again</Button>}>{errorText(q.error)}</Notice></Show>
+        <Show when={q.isLoading}><Spinner /></Show>
+        <Show when={q.data && q.data.items.length === 0}><Empty title="No cases found">{filtered() ? 'Try a different search or filter.' : 'Cases from partners will appear here.'}</Empty></Show>
+        <Show when={q.data}>
+          {(d) => (
+            <Show when={d().items.length}>
+              <p class="muted small" role="status">{formatNumber(d().total)} {d().total === 1 ? 'case' : 'cases'}</p>
+              <div class="table-wrap">
+                <table class="table">
+                  <thead>
+                    <tr><th>Reference</th><th>Partner</th><th>Case ID</th><th>Patient</th><th>Status</th><th>Site</th><th>Due</th><th>Checks</th></tr>
+                  </thead>
+                  <tbody>
+                    <For each={d().items}>
+                      {(c) => (
+                        <tr>
+                          <td class="link-cell nowrap">
+                            <A href={`/console/cases/${c.id}`}>{c.ref}</A>
+                            {c.manufacturingMode === 'direct' ? <div><Badge tone="info">Direct</Badge></div> : null}
+                            <KindBadge c={c} />
+                          </td>
+                          <td>{c.orgName ?? ''}</td>
+                          <td>{c.caseId ?? <span class="muted">None</span>}</td>
+                          <td>{c.patientMasked ? <span class="masked">{c.patientMasked}</span> : <span class="muted">Not given</span>}</td>
+                          <td><StatusBadge c={c} staff /></td>
+                          <td>{c.siteCode ?? <span class="muted">None</span>}</td>
+                          <td class="nowrap">{c.dueDate ? <span class={isLate(c.dueDate, c.status) ? 'late' : undefined}>{formatDate(c.dueDate)}{isLate(c.dueDate, c.status) ? ' (late)' : ''}</span> : <span class="muted">Not set</span>}</td>
+                          <td><CaseChecks c={c} /></td>
+                        </tr>
+                      )}
+                    </For>
+                  </tbody>
+                </table>
+              </div>
+              <Pagination page={d().page} pageSize={d().pageSize} total={d().total} onPage={(p) => setParams({ page: String(p) })} />
+            </Show>
+          )}
+        </Show>
       </Card>
     </div>
   );

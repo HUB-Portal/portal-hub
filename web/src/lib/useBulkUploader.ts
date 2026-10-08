@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { createEffect, createMemo, createSignal, onCleanup, untrack } from 'solid-js';
+import { createStore } from 'solid-js/store';
 import { plural } from './format';
 import { ApiError } from './api';
 import { httpBulkGateway, type BulkGateway } from './bulkGateway';
@@ -11,42 +12,44 @@ import { useLeaveWarning } from './useLeaveWarning';
 
 export interface BulkUploaderOptions {
   /** True while nothing may start (uploads locked, or no case address). Cards then wait. */
-  blocked: boolean;
+  blocked: () => boolean;
   /** Called when cases were created, changed or sent, so lists and counts elsewhere can refresh. */
   onChanged?: () => void;
   gateway?: BulkGateway;
+}
+
+/** What a card shows about its files and what holds it back. Pure: the same row gives the same answer. */
+export function analyseRow(r: Row) {
+  return { problems: problemsOf(r), sum: fileSummary(r.files), documents: activeFiles(r.files).filter((f) => f.kind !== 'stl' && f.kind !== 'pts').length };
 }
 
 /**
  * The work behind Direct manufacturing: it turns drops into cards, uploads them two at a time, keeps their details in step with the draft cases
  * and sends them to K Line. It knows nothing about how a card looks (that is the page and its components) or how the server is reached (that is the
  * gateway), so both can change without touching it.
+ *
+ * What it returns is reactive: `rows` is a store (a list of cards edited in place), and `analysis`, `notes`, `reading`, `ack`, `locked`,
+ * `addressRefused`, `ready`, `sendable`, `finished` and `working` are getters. Read them inside JSX or an effect and do not destructure the result.
  */
-export function useBulkUploader({ blocked, onChanged, gateway = httpBulkGateway }: BulkUploaderOptions) {
-  const [rows, setRows] = useState<Row[]>([]);
-  const [notes, setNotes] = useState<string[]>([]);
-  const [reading, setReading] = useState(0);
-  const [ack, setAck] = useState(false);
-  const [locked, setLocked] = useState(false);
-  const [addressRefused, setAddressRefused] = useState(false);
-  const rowsRef = useRef<Row[]>([]);
-  rowsRef.current = rows;
-  const sources = useRef<SourceMap>(new Map());
-  const clashes = useRef(0);
-  const started = useRef(new Set<string>());
-  const aborts = useRef(new Map<string, AbortController>());
+export function createBulkUploader({ blocked, onChanged, gateway = httpBulkGateway }: BulkUploaderOptions) {
+  const [rows, setRows] = createStore<Row[]>([]);
+  const [notes, setNotes] = createSignal<string[]>([]);
+  const [reading, setReading] = createSignal(0);
+  const [ack, setAck] = createSignal(false);
+  const [locked, setLocked] = createSignal(false);
+  const [addressRefused, setAddressRefused] = createSignal(false);
+  let sources: SourceMap = new Map();
+  let clashes = 0;
+  const started = new Set<string>();
+  const aborts = new Map<string, AbortController>();
 
-  const patch = (key: string, p: Partial<Row>) => setRows((rs) => rs.map((r) => (r.key === key ? { ...r, ...p } : r)));
+  const patch = (key: string, p: Partial<Row>) => setRows((r) => r.key === key, p);
   /** A change the partner makes on a card. It also clears an old error about the details. */
   const edit = (key: string, p: Partial<Row>) => patch(key, { ...p, nameError: undefined });
+  const find = (key: string) => rows.find((x) => x.key === key);
 
-  const sync = useDetailSync(rows, rowsRef, patch, gateway);
-  const analysis = useMemo(
-    () => rows.map((r) => {
-      return { problems: problemsOf(r), sum: fileSummary(r.files), documents: activeFiles(r.files).filter((f) => f.kind !== 'stl' && f.kind !== 'pts').length };
-    }),
-    [rows],
-  );
+  const sync = useDetailSync(rows, patch, gateway);
+  const analysis = createMemo(() => rows.map(analyseRow));
 
   // ---- a drop becomes cards: every drop appends and nothing is replaced -------------------------------------------------
   async function ingest(read: Promise<IntakeResult>) {
@@ -54,15 +57,15 @@ export function useBulkUploader({ blocked, onChanged, gateway = httpBulkGateway 
     try {
       const r = await read;
       const msgs = [...r.notes];
-      const plan = planIntake(sources.current, r.files, clashes.current);
-      clashes.current = plan.clashes;
+      const plan = planIntake(sources, r.files, clashes);
+      clashes = plan.clashes;
       if (plan.skipped) msgs.push(`${plural(plan.skipped, 'file')} already in this list ${plan.skipped === 1 ? 'was' : 'were'} skipped.`);
       if (!plan.files.length) { setNotes(msgs.length ? msgs : ['No new files were found.']); return; }
       setNotes(msgs);
-      const merged: SourceMap = new Map(sources.current);
+      const merged: SourceMap = new Map(sources);
       for (const f of plan.files) merged.set(f.path, f.source);
-      sources.current = merged;
-      const fresh = await buildRows(plan.files, merged, new Set(rowsRef.current.map((x) => x.key)));
+      sources = merged;
+      const fresh = await buildRows(plan.files, merged, new Set(rows.map((x) => x.key)));
       setRows((rs) => [...rs, ...fresh]);
     } finally {
       setReading((n) => n - 1);
@@ -72,23 +75,23 @@ export function useBulkUploader({ blocked, onChanged, gateway = httpBulkGateway 
   // ---- the work for one card --------------------------------------------------------------------------------------------
   async function createCase(row: Row, signal: AbortSignal): Promise<string | null> {
     patch(row.key, { stage: 'creating', message: undefined });
-    const made = await gateway.create(rowsRef.current.find((x) => x.key === row.key) ?? row, signal);
+    const made = await gateway.create(find(row.key) ?? row, signal);
     if (!made.id) { patch(row.key, { stage: 'failed', message: entryError(made.error) }); return null; }
-    patch(row.key, { caseUuid: made.id, ref: made.ref, synced: detailsOf(rowsRef.current.find((x) => x.key === row.key) ?? row) });
+    patch(row.key, { caseUuid: made.id, ref: made.ref, synced: detailsOf(find(row.key) ?? row) });
     onChanged?.();
     return made.id;
   }
 
   async function runCase(key: string, only?: string[]) {
-    const first = rowsRef.current.find((x) => x.key === key);
+    const first = find(key);
     if (!first) return;
     const ctrl = new AbortController();
-    aborts.current.set(key, ctrl);
+    aborts.set(key, ctrl);
     try {
       const caseUuid = first.caseUuid ?? (await createCase(first, ctrl.signal));
       if (!caseUuid) return;
-      const row = rowsRef.current.find((x) => x.key === key)!;
-      const { specs } = toSpecs(row.files, sources.current);
+      const row = find(key)!;
+      const { specs } = toSpecs(row.files, sources);
       const todo = only ? specs.filter((s) => only.includes(s.key)) : specs;
       if (!todo.length) { patch(key, { stage: 'attention', message: 'No files could be read.' }); return; }
       patch(key, { stage: 'uploading', message: undefined, failedKeys: undefined });
@@ -113,37 +116,38 @@ export function useBulkUploader({ blocked, onChanged, gateway = httpBulkGateway 
       if ((e as Error).name === 'AbortError') return;
       patch(key, { stage: 'failed', message: e instanceof ApiError && e.code === 'org_not_approved' ? 'Uploads are locked until K Line approves your account.' : friendlyUploadError(e) });
     } finally {
-      aborts.current.delete(key);
+      aborts.delete(key);
     }
   }
 
   // Start every card that has nothing to fix, a few at a time, while the drop zone stays free for the next batch.
-  useEffect(() => {
-    if (blocked || locked || addressRefused) return;
+  createEffect(() => {
+    if (blocked() || locked() || addressRefused()) return;
+    const problems = analysis();
     let free = CASES_AT_ONCE - rows.filter(isBusy).length;
     rows.forEach((r, i) => {
-      if (free <= 0 || r.stage !== 'queued' || started.current.has(r.key) || analysis[i]!.problems.length) return;
-      started.current.add(r.key);
+      if (free <= 0 || r.stage !== 'queued' || started.has(r.key) || problems[i]!.problems.length) return;
+      started.add(r.key);
       free--;
-      void runCase(r.key);
+      untrack(() => { void runCase(r.key); });
     });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [rows, blocked, locked, addressRefused, analysis]);
+  });
 
-  useEffect(() => () => { for (const a of aborts.current.values()) a.abort(); }, []);
+  onCleanup(() => { for (const a of aborts.values()) a.abort(); });
 
-  const sendable = rows.filter((r) => r.stage === 'uploaded' && (!r.serverWarnings || ack));
-  const working = rows.some((r) => isBusy(r) || r.stage === 'sending');
+  const ready = createMemo(() => rows.filter((r) => r.stage === 'uploaded'));
+  const sendable = createMemo(() => rows.filter((r) => r.stage === 'uploaded' && (!r.serverWarnings || ack())));
+  const working = createMemo(() => rows.some((r) => isBusy(r) || r.stage === 'sending'));
   useLeaveWarning(working);
 
   // ---- what the partner does with a card ---------------------------------------------------------------------------------
   function retry(r: Row) {
-    started.current.add(r.key);
+    started.add(r.key);
     void runCase(r.key, r.failedKeys);
   }
 
   async function remove(r: Row) {
-    aborts.current.get(r.key)?.abort();
+    aborts.get(r.key)?.abort();
     sync.cancel(r.key);
     if (r.caseUuid && r.stage !== 'sent') {
       try {
@@ -154,19 +158,20 @@ export function useBulkUploader({ blocked, onChanged, gateway = httpBulkGateway 
         return;
       }
     }
-    started.current.delete(r.key);
+    started.delete(r.key);
     setRows((rs) => rs.filter((x) => x.key !== r.key));
   }
 
   /** Sends the cards that are ready. Details typed a moment ago reach the case first, because a sent case can no longer be changed. */
   async function sendAll() {
-    const batch = sendable;
+    const batch = sendable();
+    const acknowledged = ack();
     for (const r of batch) patch(r.key, { stage: 'sending', message: undefined });
     for (const r of batch) {
-      const cur = rowsRef.current.find((x) => x.key === r.key)!;
+      const cur = find(r.key)!;
       try {
         await sync.flush(cur);
-        const s = await gateway.submit(r.caseUuid!, ack);
+        const s = await gateway.submit(r.caseUuid!, acknowledged);
         if (s.outcome === 'submitted') patch(r.key, { stage: 'sent', synced: detailsOf(cur) });
         else if (s.outcome === 'locked') patch(r.key, { stage: 'uploaded', message: 'Sending is locked until your account is approved.' });
         else patch(r.key, { stage: 'attention', message: s.reason });
@@ -178,11 +183,21 @@ export function useBulkUploader({ blocked, onChanged, gateway = httpBulkGateway 
   }
 
   return {
-    rows, analysis, notes, reading, ack, setAck, working,
-    locked, addressRefused,
-    ready: rows.filter((r) => r.stage === 'uploaded'),
-    sendable,
-    finished: rows.filter((r) => r.stage === 'sent').length,
+    rows,
+    get analysis() { return analysis(); },
+    get notes() { return notes(); },
+    get reading() { return reading(); },
+    get ack() { return ack(); },
+    setAck,
+    get working() { return working(); },
+    get locked() { return locked(); },
+    get addressRefused() { return addressRefused(); },
+    get ready() { return ready(); },
+    get sendable() { return sendable(); },
+    get finished() { return rows.filter((r) => r.stage === 'sent').length; },
     ingest, edit, patch, retry, remove, sendAll,
   };
 }
+
+/** The old name of createBulkUploader. */
+export const useBulkUploader = createBulkUploader;

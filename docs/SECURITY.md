@@ -125,7 +125,7 @@ Rotation procedure (outline; the operator runbook belongs in the deployment guid
 
 Set in `app.ts` with `@fastify/helmet`:
 
-* `Content-Security-Policy`: `default-src 'self'`; `script-src 'self'` (no inline script, no `eval`); `style-src 'self' 'unsafe-inline'` (React sets style attributes); `img-src 'self' data: blob:`; `media-src 'self' blob:`; `font-src 'self'`; `connect-src 'self'`; `worker-src 'self' blob:`; `object-src 'none'`; `base-uri 'self'`; `form-action 'self'`; `frame-ancestors 'none'`; `upgrade-insecure-requests` in production.
+* `Content-Security-Policy`: `default-src 'self'`; `script-src 'self'` (no inline script, no `eval`); `style-src 'self' 'unsafe-inline'` (the web app sets style attributes); `img-src 'self' data: blob:`; `media-src 'self' blob:`; `font-src 'self'`; `connect-src 'self'`; `worker-src 'self' blob:`; `object-src 'none'`; `base-uri 'self'`; `form-action 'self'`; `frame-ancestors 'none'`; `upgrade-insecure-requests` in production.
 * `X-Frame-Options: DENY`, `Referrer-Policy: no-referrer`, `X-Content-Type-Options: nosniff`, `Cross-Origin-Resource-Policy: same-origin`, `Cross-Origin-Opener-Policy: same-origin`.
 * `Strict-Transport-Security` (two years, includeSubDomains, preload) in production.
 * `Cache-Control: no-store` on every `/api` response. Built assets are cached for a year by hashed file name. `index.html` is `no-cache`.

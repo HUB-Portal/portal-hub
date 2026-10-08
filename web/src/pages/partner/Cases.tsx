@@ -1,6 +1,6 @@
-import { useEffect, useState } from 'react';
-import { Link, useSearchParams } from 'react-router-dom';
-import { useQuery, keepPreviousData } from '@tanstack/react-query';
+import { createEffect, createSignal, For, onCleanup, Show } from 'solid-js';
+import { A, useSearchParams } from '@solidjs/router';
+import { createQuery, keepPreviousData } from '@tanstack/solid-query';
 import { api, errorText, qs } from '../../lib/api';
 import { useAuth } from '../../lib/auth';
 import { caseStatus, formatDate, formatNumber } from '../../lib/format';
@@ -19,56 +19,62 @@ export const STATUS_FILTERS: { id: string; label: string }[] = [
 ];
 
 /** Marks replacement and rework cases and says which case they came from. */
-export function KindBadge({ c }: { c: CaseItem }) {
-  if (!c.kind || c.kind === 'new') return null;
-  return <div><Badge tone="info">{c.kind === 'rework' ? 'Rework' : c.kind === 'replacement' ? 'Replacement' : c.kind}</Badge>{c.parentRef ? <span className="muted small"> of {c.parentRef}</span> : null}</div>;
+export function KindBadge(props: { c: CaseItem }) {
+  return (
+    <Show when={props.c.kind && props.c.kind !== 'new'}>
+      <div><Badge tone="info">{props.c.kind === 'rework' ? 'Rework' : props.c.kind === 'replacement' ? 'Replacement' : props.c.kind}</Badge><Show when={props.c.parentRef}><span class="muted small"> of {props.c.parentRef}</span></Show></div>
+    </Show>
+  );
 }
 
-export function CaseChecks({ c }: { c: CaseItem }) {
-  const e = c.checks.errors.length;
-  const w = c.checks.warnings.length;
-  if (!e && !w) return <Badge tone="good">Clean</Badge>;
+export function CaseChecks(props: { c: CaseItem }) {
+  const e = () => props.c.checks.errors.length;
+  const w = () => props.c.checks.warnings.length;
   return (
-    <span className="row" style={{ gap: 6 }}>
-      {e ? <Badge tone="bad">{formatNumber(e)} {e === 1 ? 'error' : 'errors'}</Badge> : null}
-      {w ? <Badge tone="warn">{formatNumber(w)} {w === 1 ? 'warning' : 'warnings'}</Badge> : null}
-    </span>
+    <Show when={e() || w()} fallback={<Badge tone="good">Clean</Badge>}>
+      <span class="row" style={{ gap: '6px' }}>
+        <Show when={e()}><Badge tone="bad">{formatNumber(e())} {e() === 1 ? 'error' : 'errors'}</Badge></Show>
+        <Show when={w()}><Badge tone="warn">{formatNumber(w())} {w() === 1 ? 'warning' : 'warnings'}</Badge></Show>
+      </span>
+    </Show>
   );
 }
 
 /** One plain status per case, in words, with what to do next (review of 8 Oct 2026, A2). */
-export function CaseStatusCell({ c }: { c: CaseItem }) {
-  const st = caseStatus(c);
+export function CaseStatusCell(props: { c: CaseItem }) {
+  const st = () => caseStatus(props.c);
   return (
     <>
-      <Badge tone={st.tone}>{st.text}</Badge>
-      {st.next ? <div className="small muted">{st.next}</div> : null}
+      <Badge tone={st().tone}>{st().text}</Badge>
+      <Show when={st().next}><div class="small muted">{st().next}</div></Show>
     </>
   );
 }
 
-export function CaseRows({ items, onChanged }: { items: CaseItem[]; onChanged?: () => void }) {
+export function CaseRows(props: { items: CaseItem[]; onChanged?: () => void }) {
   return (
-    <div className="table-wrap">
-      <table className="table">
+    <div class="table-wrap">
+      <table class="table">
         <thead>
           <tr>
-            <th>Reference</th><th>Case ID</th><th>Patient</th><th>Status and next step</th><th className="num">Upper</th><th className="num">Lower</th><th>Created</th><th><span className="sr-only">Add documents</span></th>
+            <th>Reference</th><th>Case ID</th><th>Patient</th><th>Status and next step</th><th class="num">Upper</th><th class="num">Lower</th><th>Created</th><th><span class="sr-only">Add documents</span></th>
           </tr>
         </thead>
         <tbody>
-          {items.map((c) => (
-            <tr key={c.id}>
-              <td className="link-cell nowrap"><Link to={`/portal/cases/${c.id}`}>{c.ref}</Link><KindBadge c={c} /></td>
-              <td>{c.caseId ?? <span className="muted">Not set</span>}</td>
-              <td>{c.patientName ?? c.patientMasked ?? <span className="muted">Not set</span>}</td>
-              <td><CaseStatusCell c={c} /></td>
-              <td className="num">{formatNumber(c.counts.upper)}</td>
-              <td className="num">{formatNumber(c.counts.lower)}</td>
-              <td className="nowrap">{formatDate(c.createdAt)}</td>
-              <td className="right">{!c.purgedAt && c.status !== 'cancelled' ? <AddDocuments caseId={c.id} status={c.status} compact onDone={onChanged} /> : null}</td>
-            </tr>
-          ))}
+          <For each={props.items}>
+            {(c) => (
+              <tr>
+                <td class="link-cell nowrap"><A href={`/portal/cases/${c.id}`}>{c.ref}</A><KindBadge c={c} /></td>
+                <td>{c.caseId ?? <span class="muted">Not set</span>}</td>
+                <td>{c.patientName ?? c.patientMasked ?? <span class="muted">Not set</span>}</td>
+                <td><CaseStatusCell c={c} /></td>
+                <td class="num">{formatNumber(c.counts.upper)}</td>
+                <td class="num">{formatNumber(c.counts.lower)}</td>
+                <td class="nowrap">{formatDate(c.createdAt)}</td>
+                <td class="right"><Show when={!c.purgedAt && c.status !== 'cancelled'}><AddDocuments caseId={c.id} status={c.status} compact onDone={props.onChanged} /></Show></td>
+              </tr>
+            )}
+          </For>
         </tbody>
       </table>
     </div>
@@ -77,81 +83,80 @@ export function CaseRows({ items, onChanged }: { items: CaseItem[]; onChanged?: 
 
 export default function Cases() {
   const { can } = useAuth();
-  const counts = useCaseCounts(true);
+  const counts = useCaseCounts(() => true);
   const [params, setParams] = useSearchParams();
-  const status = params.get('status') ?? '';
-  const page = Math.max(1, Number(params.get('page') ?? 1) || 1);
-  const urlSearch = params.get('search') ?? '';
-  const [text, setText] = useState(urlSearch);
+  // A query value is a string, or a list when the address repeats the name: take the first.
+  const param = (v: string | string[] | undefined) => (Array.isArray(v) ? v[0] : v) ?? '';
+  const status = () => param(params.status);
+  const page = () => Math.max(1, Number(param(params.page) || 1) || 1);
+  const urlSearch = () => param(params.search);
+  const [text, setText] = createSignal(urlSearch());
 
-  useEffect(() => {
-    if (text === urlSearch) return;
+  createEffect(() => {
+    const typed = text();
+    if (typed === urlSearch()) return;
     const t = setTimeout(() => {
-      const next = new URLSearchParams(params);
-      if (text) next.set('search', text); else next.delete('search');
-      next.delete('page');
-      setParams(next, { replace: true });
+      setParams({ search: typed || undefined, page: undefined }, { replace: true });
     }, 350);
-    return () => clearTimeout(t);
-  }, [text, urlSearch, params, setParams]);
-
-  const q = useQuery({
-    queryKey: ['cases', { status, page, search: urlSearch }],
-    queryFn: () => api<CaseList>(`/api/cases${qs({ status, page, pageSize: 25, search: urlSearch })}`),
-    placeholderData: keepPreviousData,
+    onCleanup(() => clearTimeout(t));
   });
 
+  const q = createQuery(() => ({
+    queryKey: ['cases', { status: status(), page: page(), search: urlSearch() }],
+    queryFn: () => api<CaseList>(`/api/cases${qs({ status: status(), page: page(), pageSize: 25, search: urlSearch() })}`),
+    placeholderData: keepPreviousData,
+  }));
+
   function setFilter(id: string) {
-    const next = new URLSearchParams(params);
-    if (id) next.set('status', id); else next.delete('status');
-    next.delete('page');
-    setParams(next);
+    setParams({ status: id || undefined, page: undefined });
   }
   function setPage(p: number) {
-    const next = new URLSearchParams(params);
-    next.set('page', String(p));
-    setParams(next);
+    setParams({ page: String(p) });
   }
 
   return (
-    <div className="page">
+    <div class="page">
       <PageHeader
         title="Cases"
         subtitle="Every case your organisation has sent to K Line."
-        actions={can('case.write') ? <Link className="btn btn-primary" to="/portal">Send cases</Link> : undefined}
+        actions={can('case.write') ? <A class="btn btn-primary" href="/portal">Send cases</A> : undefined}
       />
       <Card>
-        <div className="toolbar">
-          <div className="field">
-            <label htmlFor="case-search">Search</label>
-            <input id="case-search" type="search" value={text} onChange={(e) => setText(e.target.value)} placeholder="Case ID, reference or exact patient name" autoComplete="off" />
+        <div class="toolbar">
+          <div class="field">
+            <label for="case-search">Search</label>
+            <input id="case-search" type="search" value={text()} onInput={(e) => setText(e.currentTarget.value)} placeholder="Case ID, reference or exact patient name" autocomplete="off" />
           </div>
         </div>
-        <div className="tabs" role="group" aria-label="Filter by status">
-          {STATUS_FILTERS.map((f) => {
-            // Counts on the chips (review of 8 Oct 2026, A3): drafts that need work no longer sit unnoticed.
-            const n = f.id === 'attention' ? counts.data?.attention : f.id === 'draft' ? counts.data?.drafts : f.id === '' ? counts.data?.all : undefined;
-            return (
-              <button key={f.id} type="button" className="tab" aria-pressed={status === f.id} onClick={() => setFilter(f.id)}>
-                {f.label}{n !== undefined ? <span className={`chip-count${f.id === 'attention' && n > 0 ? ' chip-count-alert' : ''}`}>{formatNumber(n)}</span> : null}
-              </button>
-            );
-          })}
+        <div class="tabs" role="group" aria-label="Filter by status">
+          <For each={STATUS_FILTERS}>
+            {(f) => {
+              // Counts on the chips (review of 8 Oct 2026, A3): drafts that need work no longer sit unnoticed.
+              const n = () => (f.id === 'attention' ? counts.data?.attention : f.id === 'draft' ? counts.data?.drafts : f.id === '' ? counts.data?.all : undefined);
+              return (
+                <button type="button" class="tab" aria-pressed={status() === f.id} onClick={() => setFilter(f.id)}>
+                  {f.label}<Show when={n() !== undefined}><span class={`chip-count${f.id === 'attention' && n()! > 0 ? ' chip-count-alert' : ''}`}>{formatNumber(n()!)}</span></Show>
+                </button>
+              );
+            }}
+          </For>
         </div>
-        {q.isError ? <Notice tone="bad" action={<Button size="sm" onClick={() => q.refetch()}>Try again</Button>}>{errorText(q.error)}</Notice> : null}
-        {q.isLoading ? <Spinner /> : null}
-        {q.data && q.data.items.length === 0 ? (
-          <Empty title="No cases found" action={can('case.write') ? <Link className="btn" to="/portal">Send your first cases</Link> : undefined}>
-            {urlSearch || status ? 'Try a different search or filter.' : 'Cases you send will appear here.'}
+        <Show when={q.isError}><Notice tone="bad" action={<Button size="sm" onClick={() => q.refetch()}>Try again</Button>}>{errorText(q.error)}</Notice></Show>
+        <Show when={q.isLoading}><Spinner /></Show>
+        <Show when={q.data && q.data.items.length === 0}>
+          <Empty title="No cases found" action={can('case.write') ? <A class="btn" href="/portal">Send your first cases</A> : undefined}>
+            {urlSearch() || status() ? 'Try a different search or filter.' : 'Cases you send will appear here.'}
           </Empty>
-        ) : null}
-        {q.data && q.data.items.length ? (
-          <>
-            <p className="muted small" role="status">{formatNumber(q.data.total)} {q.data.total === 1 ? 'case' : 'cases'}</p>
-            <CaseRows items={q.data.items} onChanged={() => { void q.refetch(); void counts.refetch(); }} />
-            <Pagination page={q.data.page} pageSize={q.data.pageSize} total={q.data.total} onPage={setPage} />
-          </>
-        ) : null}
+        </Show>
+        <Show when={q.data && q.data.items.length ? q.data : undefined}>
+          {(d) => (
+            <>
+              <p class="muted small" role="status">{formatNumber(d().total)} {d().total === 1 ? 'case' : 'cases'}</p>
+              <CaseRows items={d().items} onChanged={() => { void q.refetch(); void counts.refetch(); }} />
+              <Pagination page={d().page} pageSize={d().pageSize} total={d().total} onPage={setPage} />
+            </>
+          )}
+        </Show>
       </Card>
     </div>
   );

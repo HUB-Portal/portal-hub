@@ -6,7 +6,7 @@ Last checked against the code: 30 Sep 2026. This document describes what the cod
 
 ```
  Partner browser            K Line browser             Partner ERP             Factory system (MES)
- (React app)                (React app, /console)      (Bearer key)            (Bearer service key)
+ (SolidJS app)             (SolidJS app, /console)    (Bearer key)            (Bearer service key)
       |                           |                        |                          |
       | HTTPS, session cookie     | HTTPS, session cookie  | /api/v1                  | /api/mes/v1
       v                           v                        v                          v
@@ -37,7 +37,7 @@ One image, three entry points: `dist/index.js` (API), `dist/worker.js` (worker) 
 
 ### Web app
 
-React 18, react-router-dom 7, TanStack Query 5, three.js for the 3D viewer, `fflate` for zip reading in the browser. The app is built by Vite and served by the API. Fonts are self hosted. The browser makes no third party requests (the CSP would block them). Routes are in `web/src/main.tsx`:
+SolidJS 1.9, `@solidjs/router`, TanStack Query 5 (`@tanstack/solid-query`), `lucide-solid`, three.js for the 3D viewer, `fflate` for zip reading in the browser. The app is built by Vite and served by the API. Fonts are self hosted. The browser makes no third party requests (the CSP would block them). Routes are in `web/src/main.tsx`:
 
 | Area | Routes |
 |---|---|

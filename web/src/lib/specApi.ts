@@ -1,4 +1,4 @@
-import { useQuery } from '@tanstack/react-query';
+import { createQuery } from '@tanstack/solid-query';
 import { api } from './api';
 
 export interface SpecPartner {
@@ -15,5 +15,5 @@ export interface SpecPartner {
 
 /** K Line staff: every partner with the state of its specification. */
 export function useSpecPartners() {
-  return useQuery({ queryKey: ['spec-partners'], queryFn: () => api<{ items: SpecPartner[] }>('/api/console/specs/partners'), select: (d) => d.items, staleTime: 30_000 });
+  return createQuery(() => ({ queryKey: ['spec-partners'], queryFn: () => api<{ items: SpecPartner[] }>('/api/console/specs/partners'), select: (d: { items: SpecPartner[] }) => d.items, staleTime: 30_000 }));
 }
