@@ -71,9 +71,8 @@ export interface Onboarding { items: OnboardingItem[]; approved: boolean }
 /** Where each checklist item is worked on, and what to tell people when it is not in their hands. */
 export const ONBOARDING_HELP: Record<string, { to?: string; hint: string }> = {
   account_secured: { to: '/portal/account', hint: 'Set up your authenticator app so only you can sign in.' },
-  profile: { to: '/portal/company', hint: 'Add your legal name, VAT ID if you have one, your address and at least one contact.' },
   logo: { to: '/portal/company#logo', hint: 'Add your company logo so your team and K Line can recognise your account.' },
-  case_address: { to: '/portal/company#case-address', hint: 'Tell K Line where to send your cases back to. People can also add an address of their own in Account.' },
+  case_address: { to: '/portal/company#case-address', hint: 'Tell K Line where to send your cases back to. This is the shipping address in the company profile.' },
   spec: { to: '/portal/spec', hint: 'Read the production specification and propose changes if you need them.' },
   dpa: { hint: 'K Line records the data processing agreement with you. Uploads stay locked until it is done.' },
   approval: { hint: 'K Line checks your details and approves your company. This usually takes one working day.' },

@@ -1,33 +1,25 @@
-import { createEffect, createMemo, createSignal, For, type JSX, on, onCleanup, Show } from 'solid-js';
-import { createStore, reconcile } from 'solid-js/store';
+import { createEffect, createSignal, For, on, onCleanup, Show } from 'solid-js';
 import { A, useLocation } from '@solidjs/router';
 import { createMutation, createQuery, useQueryClient } from '@tanstack/solid-query';
-import { CheckCircle2, Download, ImagePlus, Trash2, XCircle } from 'lucide-solid';
+import { ImagePlus, Trash2 } from 'lucide-solid';
 import { api, ApiError, errorText } from '../../lib/api';
 import { MENU_KEYS, type MenuKey, type MenuSetting } from '@shared/menu';
 import { useAuth } from '../../lib/auth';
-import { MAX_PATTERN_LENGTH, MAX_SAMPLE_LENGTH, readPattern, testSamples } from '../../lib/caseId';
 import { CASE_ADDRESS_FIELDS, CASE_ADDRESS_INTRO, caseAddressBody, emptyCaseAddress, serverCaseAddressProblems, validateCaseAddress, type CaseAddress, type CaseAddressField, type CaseAddressProblems } from '../../lib/caseAddress';
-import { formatBytes, formatDate, formatNumber } from '../../lib/format';
+import { formatBytes, formatNumber } from '../../lib/format';
 import { LOGO_RULES, checkLogoFile, type LogoCheck } from '../../lib/logoCheck';
 import {
-  CONTACT_KEYS, CONTACT_LABEL, DOCUMENT_KINDS, agreementLabel, documentKindLabel, isNotApproved, normalizeAgreements, normalizeBrands, normalizeDocuments,
-  normalizeProfile, normalizeSites, profileBody, useOrgLogo, USER_CASE_ADDRESS_KEY, type Brand, type OrgDocument, type Profile,
+  isNotApproved, normalizeProfile, profileBody, useOrgLogo, USER_CASE_ADDRESS_KEY, type Profile,
 } from '../../lib/orgApi';
-import { COUNTRIES, countryName } from '../../lib/signup';
 import { blobSource } from '../../lib/source';
 import { uploadCaseFiles, type FileStatus, type UploadSpec } from '../../lib/upload';
-import { AttachmentPicker, uploadPending, usePending } from '../../ui/Attachments';
-import { Badge, Button, Card, Dialog, Empty, Field, Notice, PageHeader, Spinner, Toggle } from '../../ui/Common';
+import { Badge, Button, Card, Dialog, Notice, PageHeader, Spinner, Toggle } from '../../ui/Common';
 import { CaseAddressFields } from '../../ui/CaseAddressFields';
 import { LockedNotice } from '../../ui/Locked';
 import { OrgLogoImage } from '../../ui/OrgLogo';
 
 const LOGO_EXTS = ['png', 'jpg', 'jpeg', 'svg'];
 const MAX_LOGO_BYTES = 5 * 1024 * 1024;
-const DOC_EXTS = ['pdf', 'jpg', 'jpeg', 'png'];
-const MAX_DOC_BYTES = 50 * 1024 * 1024;
-const PROFILE_FILE_LIMIT = 10;
 
 type Msg = { tone: 'good' | 'bad'; text: string } | null;
 
@@ -64,7 +56,7 @@ export default function Company() {
 
   return (
     <div class="page">
-      <PageHeader title="Company profile" subtitle="The details K Line uses for agreements, shipping and quality. Keep them up to date." />
+      <PageHeader title="Company profile" subtitle="Where K Line sends your cases back to, and how your company appears to your team." />
       <Show when={onboarding()}>
         <Notice tone="info" title="Your company is waiting for K Line to approve it" action={<A class="btn btn-sm" href="/portal/getting-started">Getting started</A>}>
           You can finish your profile now. Sending cases, inviting people and sending materials unlock after approval.
@@ -82,16 +74,9 @@ export default function Company() {
       <Show when={q.data}>
         {(profile) => (
           <>
-            <DetailsCard profile={profile()} canEdit={canEdit()} />
             <div id="case-address" tabIndex={-1} class="anchor"><CaseAddressCard profile={profile()} canEdit={canEdit()} /></div>
             <div id="logo" tabIndex={-1} class="anchor"><LogoCard profile={profile()} canEdit={canLogo()} onboarding={onboarding()} /></div>
-            <ContactsCard profile={profile()} canEdit={canEdit()} />
-            <CaseIdCard profile={profile()} canEdit={canEdit()} />
             <Show when={canEdit()}><MenuCard /></Show>
-            <BrandsCard profile={profile()} canEdit={canEdit()} onboarding={onboarding()} />
-            <DocumentsCard profile={profile()} canEdit={canEdit()} onboarding={onboarding()} />
-            <AgreementsCard />
-            <SitesCard />
           </>
         )}
       </Show>
@@ -116,169 +101,6 @@ function useSaveProfile(base: () => Profile, onDone: (m: Msg) => void) {
       onDone({ tone: 'bad', text: extra.length ? `${errorText(e)} ${extra.join(' ')}` : errorText(e) });
     },
   }));
-}
-
-// ---------------------------------------------------------------------------------------------------------- details
-
-function DetailsCard(props: { profile: Profile; canEdit: boolean }) {
-  const [msg, setMsg] = createSignal<Msg>(null);
-  const [name, setName] = createSignal(props.profile.name);
-  const [legalName, setLegalName] = createSignal(props.profile.legalName);
-  const [country, setCountry] = createSignal(props.profile.country);
-  const [vatId, setVatId] = createSignal(props.profile.vatId);
-  const [street, setStreet] = createSignal(props.profile.address.street);
-  const [city, setCity] = createSignal(props.profile.address.city);
-  const [postalCode, setPostalCode] = createSignal(props.profile.address.postalCode);
-  const [addrCountry, setAddrCountry] = createSignal(props.profile.address.country || props.profile.country);
-  createEffect(() => {
-    const p = props.profile;
-    setName(p.name); setLegalName(p.legalName); setCountry(p.country); setVatId(p.vatId);
-    setStreet(p.address.street); setCity(p.address.city); setPostalCode(p.address.postalCode); setAddrCountry(p.address.country || p.country);
-  });
-  const save = useSaveProfile(() => props.profile, setMsg);
-  function submit(e: SubmitEvent) {
-    e.preventDefault();
-    setMsg(null);
-    save.mutate({ name: name(), legalName: legalName(), country: country(), vatId: vatId(), address: { street: street(), city: city(), postalCode: postalCode(), country: addrCountry() } });
-  }
-  return (
-    <Card title="Company details">
-      <form onSubmit={submit} class="stack">
-        <Feedback msg={msg()} />
-        <fieldset class="plain-fieldset stack" disabled={!props.canEdit}>
-          <div class="form-grid">
-            <Field label="Company name" hint="The name your team sees in the Hub.">{(p) => <input {...p} value={name()} onInput={(e) => setName(e.currentTarget.value)} maxLength={120} required />}</Field>
-            <Field label="Legal name" hint="As it appears in your contracts.">{(p) => <input {...p} value={legalName()} onInput={(e) => setLegalName(e.currentTarget.value)} maxLength={160} autocomplete="organization" />}</Field>
-            <Field label="Country" hint={props.profile.countryLocked ? 'Only K Line can change this after approval, because it decides where your cases may be made.' : undefined}>
-              {(p) => (
-                <select {...p} value={country()} onChange={(e) => setCountry(e.currentTarget.value)} disabled={props.profile.countryLocked}>
-                  <option value="">Choose a country</option>
-                  <For each={COUNTRIES}>{(c) => <option value={c.code}>{c.name}</option>}</For>
-                </select>
-              )}
-            </Field>
-            <Field label="VAT ID" hint={props.profile.vatRequired ? 'Needed for companies in the EU.' : 'If you have one.'}>{(p) => <input {...p} value={vatId()} onInput={(e) => setVatId(e.currentTarget.value)} maxLength={24} autocomplete="off" />}</Field>
-          </div>
-          <div class="form-grid">
-            <Field label="Street and number">{(p) => <input {...p} value={street()} onInput={(e) => setStreet(e.currentTarget.value)} maxLength={160} autocomplete="street-address" />}</Field>
-            <Field label="Postcode">{(p) => <input {...p} value={postalCode()} onInput={(e) => setPostalCode(e.currentTarget.value)} maxLength={20} autocomplete="postal-code" />}</Field>
-            <Field label="City">{(p) => <input {...p} value={city()} onInput={(e) => setCity(e.currentTarget.value)} maxLength={100} autocomplete="address-level2" />}</Field>
-            <Field label="Address country">
-              {(p) => (
-                <select {...p} value={addrCountry()} onChange={(e) => setAddrCountry(e.currentTarget.value)} autocomplete="country">
-                  <option value="">Choose a country</option>
-                  <For each={COUNTRIES}>{(c) => <option value={c.code}>{c.name}</option>}</For>
-                </select>
-              )}
-            </Field>
-          </div>
-        </fieldset>
-        <Show when={props.canEdit}><div><Button type="submit" variant="primary" loading={save.isPending}>Save details</Button></div></Show>
-      </form>
-    </Card>
-  );
-}
-
-// --------------------------------------------------------------------------------------------------------- contacts
-
-type ContactFields = Profile['contacts'];
-
-function ContactsCard(props: { profile: Profile; canEdit: boolean }) {
-  const [msg, setMsg] = createSignal<Msg>(null);
-  // A copy of the saved contacts that the fields edit. It is replaced whenever the saved profile changes.
-  const copyOf = (): ContactFields => JSON.parse(JSON.stringify(props.profile.contacts));
-  const [contacts, setContacts] = createStore<ContactFields>(copyOf());
-  createEffect(() => setContacts(reconcile(copyOf())));
-  const save = useSaveProfile(() => props.profile, setMsg);
-  const set = (k: (typeof CONTACT_KEYS)[number], f: 'name' | 'email' | 'phone', v: string) => setContacts(k, f, v);
-  function submit(e: SubmitEvent) { e.preventDefault(); setMsg(null); save.mutate({ contacts: JSON.parse(JSON.stringify(contacts)) }); }
-  return (
-    <Card title="Contacts" >
-      <form onSubmit={submit} class="stack">
-        <p class="muted">Tell us who to talk to about each topic. Add at least one contact.</p>
-        <Feedback msg={msg()} />
-        <fieldset class="plain-fieldset stack-lg" disabled={!props.canEdit}>
-          <For each={CONTACT_KEYS}>
-            {(k) => (
-              <fieldset class="plain-fieldset stack-sm">
-                <legend class="label">{CONTACT_LABEL[k]}</legend>
-                <div class="form-grid">
-                  <Field label={`${CONTACT_LABEL[k]} contact name`}>{(p) => <input {...p} value={contacts[k].name} onInput={(e) => set(k, 'name', e.currentTarget.value)} maxLength={120} autocomplete="off" />}</Field>
-                  <Field label={`${CONTACT_LABEL[k]} email`}>{(p) => <input {...p} type="email" value={contacts[k].email} onInput={(e) => set(k, 'email', e.currentTarget.value)} maxLength={200} autocomplete="off" />}</Field>
-                  <Field label={`${CONTACT_LABEL[k]} phone`}>{(p) => <input {...p} type="tel" value={contacts[k].phone} onInput={(e) => set(k, 'phone', e.currentTarget.value)} maxLength={40} autocomplete="off" />}</Field>
-                </div>
-              </fieldset>
-            )}
-          </For>
-        </fieldset>
-        <Show when={props.canEdit}><div><Button type="submit" variant="primary" loading={save.isPending}>Save contacts</Button></div></Show>
-      </form>
-    </Card>
-  );
-}
-
-// ------------------------------------------------------------------------------------------------ case ID pattern
-
-const EXAMPLE_IDS = 'ABC-12345\n55813\nCase 7\nabc_001';
-
-function CaseIdCard(props: { profile: Profile; canEdit: boolean }) {
-  const [msg, setMsg] = createSignal<Msg>(null);
-  const [pattern, setPattern] = createSignal(props.profile.settings.caseIdRegex);
-  const [requirePts, setRequirePts] = createSignal(props.profile.settings.requirePts);
-  const [samples, setSamples] = createSignal(EXAMPLE_IDS);
-  createEffect(() => { setPattern(props.profile.settings.caseIdRegex); setRequirePts(props.profile.settings.requirePts); });
-  const save = useSaveProfile(() => props.profile, setMsg);
-  const state = createMemo(() => readPattern(pattern()));
-  const results = createMemo(() => {
-    const s = state();
-    if (!s.ok || !s.regex) return [];
-    return testSamples(s.regex, samples().split(/\r?\n/).filter((l) => l.trim()).slice(0, 30));
-  });
-  const patternError = () => { const s = state(); return !s.ok ? s.message : null; };
-  function submit(e: SubmitEvent) {
-    e.preventDefault();
-    setMsg(null);
-    if (!state().ok) return;
-    save.mutate({ settings: { caseIdRegex: pattern().trim(), requirePts: requirePts() } });
-  }
-  return (
-    <Card title="Case IDs and trim lines">
-      <form onSubmit={submit} class="stack">
-        <Feedback msg={msg()} />
-        <fieldset class="plain-fieldset stack" disabled={!props.canEdit}>
-          <Field
-            label="Case ID pattern (optional)"
-            hint={`A pattern that your case IDs should follow, for example ^[A-Z]{3}-[0-9]{5}$. Start with ^ and end with $ to match the whole ID. Leave it empty to accept any ID. At most ${MAX_PATTERN_LENGTH} characters.`}
-            error={patternError()}
-          >
-            {(p) => <input {...p} class="mono" value={pattern()} onInput={(e) => setPattern(e.currentTarget.value)} maxLength={MAX_PATTERN_LENGTH} spellcheck={false} autocomplete="off" />}
-          </Field>
-          <Toggle checked={requirePts()} onChange={(v) => setRequirePts(v)} label="Ask for a trim line for every aligner" hint="Without one you get a warning to confirm before you submit." />
-        </fieldset>
-
-        <div class="stack-sm">
-          <Field label="Try it out" hint={`Type or paste case IDs, one on each line. Nothing is sent anywhere. Each ID can have at most ${MAX_SAMPLE_LENGTH} characters.`}>
-            {(p) => <textarea {...p} class="textarea-mono" rows={4} value={samples()} onInput={(e) => setSamples(e.currentTarget.value)} spellcheck={false} />}
-          </Field>
-          <Show when={(() => { const s = state(); return s.ok && !s.regex; })()}><p class="muted small">There is no pattern, so every ID is accepted.</p></Show>
-          <Show when={results().length}>
-            <ul class="attach-list" aria-label="Test results">
-              <For each={results()}>
-                {(r) => (
-                  <li class="attach-item">
-                    {r.match ? <CheckCircle2 size={18} class="ok-icon" aria-hidden="true" /> : <XCircle size={18} class="bad-icon" aria-hidden="true" />}
-                    <span class="attach-meta"><span class="mono attach-name">{r.text}</span></span>
-                    <Badge tone={r.match ? 'good' : 'bad'}>{r.match ? 'Matches' : r.tooLong ? 'Too long' : 'Does not match'}</Badge>
-                  </li>
-                )}
-              </For>
-            </ul>
-          </Show>
-        </div>
-        <Show when={props.canEdit}><div><Button type="submit" variant="primary" loading={save.isPending} disabled={!state().ok}>Save</Button></div></Show>
-      </form>
-    </Card>
-  );
 }
 
 // ------------------------------------------------------------------------------------------------------------- menu
@@ -356,7 +178,7 @@ function CaseAddressCard(props: { profile: Profile; canEdit: boolean }) {
   const save = createMutation(() => ({
     mutationFn: (a: CaseAddress) => api('/api/org/profile', { method: 'PUT', body: { caseAddress: caseAddressBody(a) } }),
     onSuccess: () => {
-      setMsg({ tone: 'good', text: 'Your case address is saved.' });
+      setMsg({ tone: 'good', text: 'Your shipping address is saved.' });
       qc.invalidateQueries({ queryKey: ['org-profile'] });
       qc.invalidateQueries({ queryKey: ['onboarding'] });
       qc.invalidateQueries({ queryKey: USER_CASE_ADDRESS_KEY });
@@ -381,21 +203,20 @@ function CaseAddressCard(props: { profile: Profile; canEdit: boolean }) {
 
   const complete = () => props.profile.caseAddressComplete;
   return (
-    <Card title="Company case address" actions={complete() === undefined ? undefined : <Badge tone={complete() ? 'good' : 'warn'}>{complete() ? 'Complete' : 'Needed'}</Badge>}>
+    <Card title="Shipping address" actions={complete() === undefined ? undefined : <Badge tone={complete() ? 'good' : 'warn'}>{complete() ? 'Complete' : 'Needed'}</Badge>}>
       <form ref={form} onSubmit={submit} class="stack" noValidate>
         <p class="muted">{CASE_ADDRESS_INTRO} It goes on the label of every case you send with Direct manufacturing, so the carrier knows who receives it. A case that has already been sent keeps the address it was sent with.</p>
-        <p class="muted">This is the default for your company. It is used when a person has no case address of their own. Everyone can add their own in <A href="/portal/account#case-address">Account</A>.</p>
         <Show when={complete() === false}>
-          <Notice tone="warn" title="Add your case address">
-            Direct manufacturing stays blocked until you save a complete case address.{!props.profile.caseAddress ? ' We started with your company address. Check it, add the missing details and save.' : ''}
+          <Notice tone="warn" title="Add your shipping address">
+            Direct manufacturing stays blocked until you save a complete shipping address.{!props.profile.caseAddress ? ' We started with your company address. Check it, add the missing details and save.' : ''}
           </Notice>
         </Show>
         <Feedback msg={msg()} />
         <fieldset class="plain-fieldset stack" disabled={!props.canEdit}>
-          <legend class="sr-only">Company case address</legend>
+          <legend class="sr-only">Shipping address</legend>
           <CaseAddressFields value={value()} errors={errors()} onChange={(f, v) => setValue((a) => ({ ...a, [f]: v }))} fields={CASE_ADDRESS_FIELDS} />
         </fieldset>
-        <Show when={props.canEdit}><div><Button type="submit" variant="primary" loading={save.isPending}>Save case address</Button></div></Show>
+        <Show when={props.canEdit}><div><Button type="submit" variant="primary" loading={save.isPending}>Save shipping address</Button></div></Show>
       </form>
     </Card>
   );
@@ -480,7 +301,6 @@ function LogoCard(props: { profile: Profile; canEdit: boolean; onboarding: boole
     <Card title={<>Company logo <Show when={hasLogo() !== undefined}><Badge tone={hasLogo() ? 'good' : 'warn'}>{hasLogo() ? 'Added' : 'Required'}</Badge></Show></>}>
       <div class="stack">
         <p class="muted">Your logo is required. It shows in the top bar for everyone in your company, so your team and K Line can recognise your account. Every team member except viewers can change it, and the access log records who did.</p>
-        {profileFilesNote(props.profile, props.onboarding)}
         <Feedback msg={msg()} />
         <Show when={locked()}><LockedNotice what="add more files" /></Show>
 
@@ -589,311 +409,3 @@ function LogoImage(props: { src: string; alt: string; show: boolean }) {
   );
 }
 
-function BrandsCard(props: { profile: Profile; canEdit: boolean; onboarding: boolean }) {
-  const qc = useQueryClient();
-  const brands = createQuery(() => ({ queryKey: ['org-brands'], queryFn: async () => normalizeBrands(await api('/api/org/brands')) }));
-  const [msg, setMsg] = createSignal<Msg>(null);
-  const [version, setVersion] = createSignal<Record<string, number>>({});
-  const [busyKey, setBusyKey] = createSignal<string | null>(null);
-  const [newName, setNewName] = createSignal('');
-  const [renaming, setRenaming] = createSignal<Brand | null>(null);
-  const [removing, setRemoving] = createSignal<Brand | null>(null);
-  const [locked, setLocked] = createSignal(false);
-
-  async function setLogo(key: string, file: File, attach: (fileId: string) => Promise<unknown>) {
-    setMsg(null);
-    setBusyKey(key);
-    try {
-      const fileId = await uploadLogoFile(file);
-      await attach(fileId);
-      setVersion((v) => ({ ...v, [key]: Date.now() }));
-      qc.invalidateQueries({ queryKey: ['org-brands'] });
-      qc.invalidateQueries({ queryKey: ['org-profile'] });
-      setMsg({ tone: 'good', text: 'The logo is saved.' });
-    } catch (e) {
-      if (isNotApproved(e)) setLocked(true);
-      setMsg({ tone: 'bad', text: e instanceof ApiError ? errorText(e) : (e as Error).message || 'The logo could not be saved.' });
-    } finally {
-      setBusyKey(null);
-    }
-  }
-
-  const add = createMutation(() => ({
-    mutationFn: () => api('/api/org/brands', { method: 'POST', body: { name: newName().trim() } }),
-    onSuccess: () => { setNewName(''); setMsg({ tone: 'good', text: 'Brand added.' }); qc.invalidateQueries({ queryKey: ['org-brands'] }); },
-    onError: (e: unknown) => setMsg({ tone: 'bad', text: errorText(e) }),
-  }));
-  const del = createMutation(() => ({
-    mutationFn: (b: Brand) => api(`/api/org/brands/${b.id}`, { method: 'DELETE' }),
-    onSuccess: () => { setRemoving(null); setMsg({ tone: 'good', text: 'Brand removed.' }); qc.invalidateQueries({ queryKey: ['org-brands'] }); },
-    onError: (e: unknown) => { setRemoving(null); setMsg({ tone: 'bad', text: errorText(e) }); },
-  }));
-
-  return (
-    <Card title="Brands">
-      <div class="stack">
-        <p class="muted">Add the brands you send cases for. Each brand can have its own logo as a PNG, JPG or SVG image, up to {formatBytes(MAX_LOGO_BYTES)}. We check every image before we keep it.</p>
-        {profileFilesNote(props.profile, props.onboarding)}
-        <Feedback msg={msg()} />
-        <Show when={locked()}><LockedNotice what="add more files" /></Show>
-
-        <Show when={brands.isLoading}><Spinner /></Show>
-        <Show when={brands.isError}><Notice tone="bad">{errorText(brands.error)}</Notice></Show>
-        <Show when={brands.data && brands.data.length === 0}><p class="muted">No brands yet. Add one if you send cases under more than one name.</p></Show>
-        <Show when={brands.data && brands.data.length}>
-          <ul class="attach-list">
-            <For each={brands.data}>
-              {(b) => (
-                <li class="attach-item">
-                  <LogoImage src={`/api/org/brands/${b.id}/logo?v=${version()[b.id] ?? 0}`} alt={`Logo of ${b.name}`} show={b.hasLogo !== false} />
-                  <span class="attach-meta"><span class="attach-name">{b.name}</span></span>
-                  <Show when={props.canEdit}>
-                    <span class="row" style={{ gap: '6px' }}>
-                      <LogoPicker label={`Upload logo for ${b.name}`} busy={busyKey() === b.id} onFile={(f) => setLogo(b.id, f, (fileId) => api(`/api/org/brands/${b.id}/logo`, { method: 'POST', body: { fileId } }))} />
-                      <Button size="sm" onClick={() => setRenaming(b)} aria-label={`Rename ${b.name}`}>Rename</Button>
-                      <Button size="sm" variant="danger" onClick={() => setRemoving(b)} aria-label={`Remove ${b.name}`}>Remove</Button>
-                    </span>
-                  </Show>
-                </li>
-              )}
-            </For>
-          </ul>
-        </Show>
-        <Show when={props.canEdit}>
-          <form class="inline-form" onSubmit={(e) => { e.preventDefault(); if (newName().trim()) add.mutate(); }}>
-            <Field label="New brand name" class="grow">{(p) => <input {...p} value={newName()} onInput={(e) => setNewName(e.currentTarget.value)} maxLength={80} autocomplete="off" />}</Field>
-            <Button type="submit" variant="primary" loading={add.isPending} disabled={!newName().trim()}>Add brand</Button>
-          </form>
-        </Show>
-      </div>
-
-      <RenameBrand brand={renaming()} onClose={() => setRenaming(null)} onDone={() => { setRenaming(null); setMsg({ tone: 'good', text: 'Brand renamed.' }); qc.invalidateQueries({ queryKey: ['org-brands'] }); }} />
-      <Dialog
-        open={!!removing()}
-        title="Remove this brand?"
-        onClose={() => setRemoving(null)}
-        footer={<><Button onClick={() => setRemoving(null)}>Keep it</Button><Button variant="danger" loading={del.isPending} onClick={() => { const b = removing(); if (b) del.mutate(b); }}>Remove</Button></>}
-      >
-        <p>{removing()?.name} and its logo will be removed. Cases that already use this brand keep working.</p>
-      </Dialog>
-    </Card>
-  );
-}
-
-function RenameBrand(props: { brand: Brand | null; onClose: () => void; onDone: () => void }) {
-  const [name, setName] = createSignal('');
-  const [error, setError] = createSignal<string | null>(null);
-  // Start from the brand's own name each time the dialog opens for a brand.
-  createEffect(on(() => props.brand, (b) => { if (b) { setName(b.name); setError(null); } }));
-  const m = createMutation(() => ({
-    mutationFn: () => api(`/api/org/brands/${props.brand!.id}`, { method: 'PATCH', body: { name: name().trim() } }),
-    onSuccess: () => { props.onDone(); },
-    onError: (e: unknown) => setError(errorText(e)),
-  }));
-  return (
-    <Dialog open={!!props.brand} title="Rename brand" onClose={() => props.onClose()}>
-      <form class="stack" onSubmit={(e) => { e.preventDefault(); setError(null); m.mutate(); }}>
-        <Show when={error()}>{(err) => <Notice tone="bad">{err()}</Notice>}</Show>
-        <Field label="Brand name">{(p) => <input {...p} value={name()} onInput={(e) => setName(e.currentTarget.value)} maxLength={80} required autofocus />}</Field>
-        <div class="row-end">
-          <Button onClick={() => props.onClose()}>Cancel</Button>
-          <Button type="submit" variant="primary" loading={m.isPending} disabled={!name().trim()}>Save</Button>
-        </div>
-      </form>
-    </Dialog>
-  );
-}
-
-// -------------------------------------------------------------------------------------------------------- documents
-
-function profileFilesNote(profile: Profile, onboarding: boolean): JSX.Element {
-  const max = profile.profileFiles?.max ?? (onboarding ? PROFILE_FILE_LIMIT : null);
-  if (!max) return null;
-  const used = profile.profileFiles?.count;
-  return (
-    <p class="small muted">
-      Until K Line approves your company you can keep at most {formatNumber(max)} files on this page, logos and documents together.
-      {typeof used === 'number' ? ` You have stored ${formatNumber(used)}.` : ''}
-    </p>
-  );
-}
-
-function DocumentsCard(props: { profile: Profile; canEdit: boolean; onboarding: boolean }) {
-  const qc = useQueryClient();
-  const { can } = useAuth();
-  const docs = createQuery(() => ({ queryKey: ['org-documents'], queryFn: async () => normalizeDocuments(await api('/api/org/documents')) }));
-  const [kind, setKind] = createSignal<'qc_criteria' | 'packaging' | 'other'>('qc_criteria');
-  const [status, setStatus] = createSignal<Record<string, FileStatus>>({});
-  const [busy, setBusy] = createSignal(false);
-  const [msg, setMsg] = createSignal<Msg>(null);
-  const [removing, setRemoving] = createSignal<OrgDocument | null>(null);
-  const [locked, setLocked] = createSignal(false);
-  const pend = usePending({ exts: DOC_EXTS, maxFiles: 20, maxBytes: () => MAX_DOC_BYTES });
-
-  async function send() {
-    setBusy(true);
-    setMsg(null);
-    setStatus({});
-    try {
-      const last: Record<string, FileStatus> = {};
-      const ok = await uploadPending({ purpose: 'document', kind: kind() }, pend.pending, (k, s) => { last[k] = s; setStatus((p) => ({ ...p, [k]: s })); });
-      qc.invalidateQueries({ queryKey: ['org-documents'] });
-      qc.invalidateQueries({ queryKey: ['org-profile'] });
-      qc.invalidateQueries({ queryKey: ['onboarding'] });
-      if (ok) { pend.clear(); setStatus({}); setMsg({ tone: 'good', text: 'Your documents are saved.' }); }
-      else {
-        // Keep only the files that did not go through, so they can be tried again.
-        for (const [k, s] of Object.entries(last)) if (s.phase === 'ready') pend.remove(k);
-        setMsg({ tone: 'bad', text: 'Some files were not saved. See the messages below.' });
-      }
-    } catch (e) {
-      setMsg({ tone: 'bad', text: errorText(e) });
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  // Show the locked notice when a file was refused because the company is not approved.
-  createEffect(() => {
-    if (Object.values(status()).some((s) => s.error?.startsWith('Uploads are locked'))) setLocked(true);
-  });
-
-  const del = createMutation(() => ({
-    mutationFn: (d: OrgDocument) => api(`/api/org/documents/${d.id}`, { method: 'DELETE' }),
-    onSuccess: () => { setRemoving(null); setMsg({ tone: 'good', text: 'Document removed.' }); qc.invalidateQueries({ queryKey: ['org-documents'] }); qc.invalidateQueries({ queryKey: ['org-profile'] }); },
-    onError: (e: unknown) => { setRemoving(null); setMsg({ tone: 'bad', text: errorText(e) }); },
-  }));
-
-  return (
-    <Card title="Documents">
-      <div class="stack">
-        <p class="muted">Share quality control criteria, packaging instructions and similar documents with K Line. PDF, JPG and PNG files, up to {formatBytes(MAX_DOC_BYTES)} each.</p>
-        {profileFilesNote(props.profile, props.onboarding)}
-        <Feedback msg={msg()} />
-        <Show when={locked()}><LockedNotice what="add more files" /></Show>
-
-        <Show when={docs.isLoading}><Spinner /></Show>
-        <Show when={docs.isError}><Notice tone="bad">{errorText(docs.error)}</Notice></Show>
-        <Show when={docs.data && docs.data.length === 0}><Empty title="No documents yet">Files you add appear here.</Empty></Show>
-        <Show when={docs.data && docs.data.length}>
-          <div class="table-wrap">
-            <table class="table">
-              <thead><tr><th>Document</th><th>Type</th><th class="num">Size</th><th>Added</th><th><span class="sr-only">Actions</span></th></tr></thead>
-              <tbody>
-                <For each={docs.data}>
-                  {(d) => (
-                    <tr>
-                      <td><strong>{d.name}</strong>{d.state !== 'ready' ? <div><Badge tone={d.state === 'rejected' ? 'bad' : 'info'}>{d.state === 'rejected' ? 'Not accepted' : 'Checking'}</Badge>{d.problem ? <div class="small muted">{d.problem}</div> : null}</div> : null}</td>
-                      <td>{documentKindLabel(d.kind)}</td>
-                      <td class="num nowrap">{formatBytes(d.size)}</td>
-                      <td class="nowrap">{d.createdAt ? formatDate(d.createdAt) : ''}</td>
-                      <td>
-                        <div class="row" style={{ gap: '6px', 'justify-content': 'flex-end', 'flex-wrap': 'nowrap' }}>
-                          {can('file.download') && d.state === 'ready' ? <a class="btn btn-sm" href={`/api/files/${d.id}/download`} aria-label={`Download ${d.name}`}><Download size={14} aria-hidden="true" /> Download</a> : null}
-                          {props.canEdit ? <Button size="sm" variant="danger" onClick={() => setRemoving(d)} aria-label={`Delete ${d.name}`}><Trash2 size={14} aria-hidden="true" /> Delete</Button> : null}
-                        </div>
-                      </td>
-                    </tr>
-                  )}
-                </For>
-              </tbody>
-            </table>
-          </div>
-        </Show>
-
-        <Show when={props.canEdit}>
-          <div class="stack">
-            <h3>Add documents</h3>
-            <Field label="What are these documents?">
-              {(p) => <select {...p} value={kind()} onChange={(e) => setKind(e.currentTarget.value as 'qc_criteria' | 'packaging' | 'other')} disabled={busy()}><For each={DOCUMENT_KINDS}>{(k) => <option value={k.id}>{k.label}</option>}</For></select>}
-            </Field>
-            <AttachmentPicker
-              pending={pend.pending}
-              problems={pend.problems}
-              status={status()}
-              onAdd={pend.add}
-              onRemove={pend.remove}
-              busy={busy()}
-              accept=".pdf,.jpg,.jpeg,.png"
-              label="Drop documents here or choose files"
-              hint="PDF, JPG or PNG"
-            />
-            <Show when={pend.pending.length}>
-              <div class="row-end">
-                <Button onClick={() => { pend.clear(); setStatus({}); }} disabled={busy()}>Clear</Button>
-                <Button variant="primary" loading={busy()} onClick={send}>Upload {formatNumber(pend.pending.length)} {pend.pending.length === 1 ? 'file' : 'files'}</Button>
-              </div>
-            </Show>
-          </div>
-        </Show>
-      </div>
-      <Dialog
-        open={!!removing()}
-        title="Delete this document?"
-        onClose={() => setRemoving(null)}
-        footer={<><Button onClick={() => setRemoving(null)}>Keep it</Button><Button variant="danger" loading={del.isPending} onClick={() => { const d = removing(); if (d) del.mutate(d); }}>Delete</Button></>}
-      >
-        <p>{removing()?.name} will be deleted. K Line will no longer see it.</p>
-      </Dialog>
-    </Card>
-  );
-}
-
-// ------------------------------------------------------------------------------------- agreements and sites (read)
-
-function AgreementsCard() {
-  const q = createQuery(() => ({ queryKey: ['org-agreements'], queryFn: async () => normalizeAgreements(await api('/api/org/agreements')) }));
-  return (
-    <Card title="Agreements on file">
-      <p class="muted">K Line records signed agreements with you. You cannot change them here.</p>
-      <Show when={q.isLoading}><Spinner /></Show>
-      <Show when={q.isError}><Notice tone="bad">{errorText(q.error)}</Notice></Show>
-      <Show when={q.data && q.data.length === 0}><Empty title="Nothing recorded yet">Your data processing agreement appears here once K Line has recorded it.</Empty></Show>
-      <Show when={q.data && q.data.length}>
-        <div class="table-wrap">
-          <table class="table">
-            <thead><tr><th>Agreement</th><th>Signed</th><th>Expires</th><th>Reference</th></tr></thead>
-            <tbody>
-              <For each={q.data}>
-                {(a) => (
-                  <tr>
-                    <td><strong>{agreementLabel(a.kind)}</strong></td>
-                    <td class="nowrap">{a.signedAt ? formatDate(a.signedAt) : 'Not set'}</td>
-                    <td class="nowrap">{a.expiresAt ? formatDate(a.expiresAt) : 'No end date'}</td>
-                    <td>{a.reference ?? ''}</td>
-                  </tr>
-                )}
-              </For>
-            </tbody>
-          </table>
-        </div>
-      </Show>
-    </Card>
-  );
-}
-
-function SitesCard() {
-  const q = createQuery(() => ({ queryKey: ['org-sites'], queryFn: async () => normalizeSites(await api('/api/org/sites')) }));
-  return (
-    <Card title="Sites where your cases are made">
-      <p class="muted">K Line decides which sites can make your cases. Ask your account team if you need a change.</p>
-      <Show when={q.isLoading}><Spinner /></Show>
-      <Show when={q.isError}><Notice tone="bad">{errorText(q.error)}</Notice></Show>
-      <Show when={q.data && q.data.length === 0}><Empty title="No sites yet">K Line adds sites when they approve your company.</Empty></Show>
-      <Show when={q.data && q.data.length}>
-        <ul class="attach-list">
-          <For each={q.data}>
-            {(s) => (
-              <li class="attach-item">
-                <span class="attach-meta">
-                  <span class="attach-name">{s.name} <span class="muted small">{s.code}</span> {s.isDefault ? <Badge tone="info">Default</Badge> : null}</span>
-                  <span class="muted small">{[s.city, countryName(s.country)].filter(Boolean).join(', ')}</span>
-                </span>
-              </li>
-            )}
-          </For>
-        </ul>
-      </Show>
-    </Card>
-  );
-}

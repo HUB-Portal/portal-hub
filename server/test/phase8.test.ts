@@ -225,9 +225,9 @@ describe('getting started items', () => {
   it('lists the logo and the case address', async () => {
     const r = await admin.call('GET', '/api/org/onboarding');
     expect(r.status).toBe(200);
-    expect(r.json.items.map((i: any) => i.id)).toEqual(['account_secured', 'profile', 'logo', 'case_address', 'spec', 'dpa', 'approval']);
+    expect(r.json.items.map((i: any) => i.id)).toEqual(['account_secured', 'logo', 'case_address', 'spec', 'dpa', 'approval']);
     expect(item(r.json, 'logo')).toMatchObject({ label: 'Add your company logo', done: true });
-    expect(item(r.json, 'case_address')).toMatchObject({ label: 'Add your case address', done: true });
+    expect(item(r.json, 'case_address')).toMatchObject({ label: 'Add your shipping address', done: true });
     expect(r.json.items.every((i: any) => !/ [-–—] /.test(i.label))).toBe(true);
   });
 

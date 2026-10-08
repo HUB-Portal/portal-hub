@@ -14,7 +14,7 @@ const FLOW: FlowStep[] = [
   { key: 'confirm', lane: 'company', number: 2, title: 'Confirm the email', body: 'We send you a link. It is valid for 48 hours.' },
   { key: 'password', lane: 'company', number: 3, title: 'Choose a password and set up the authenticator app', body: 'Everyone signs in with two factor authentication. Save the 10 recovery codes in a safe place.', withoutMfa: { title: 'Choose a password', body: 'You sign in with your email address and your password.' } },
   { key: 'notified', lane: 'kline', title: 'K Line is notified', body: 'K Line is told that a new company has confirmed its email.' },
-  { key: 'prepare', lane: 'company', number: 4, title: 'Prepare the company', body: 'Add your logo, your case address, your production spec and your company details.' },
+  { key: 'prepare', lane: 'company', number: 4, title: 'Prepare the company', body: 'Add your logo, your shipping address and your production spec.' },
   {
     key: 'review', lane: 'kline', title: 'K Line reviews',
     body: (
@@ -70,7 +70,7 @@ function useStepProgress(): () => Record<string, StepProgress> {
     if (!signedIn()) return {};
     const items = onboarding.data?.items;
     const done = (id: string) => items?.find((i) => i.id === id)?.done === true;
-    const prepared = !!items && ['profile', 'logo', 'case_address', 'spec'].every(done);
+    const prepared = !!items && ['logo', 'case_address', 'spec'].every(done);
     const state: Record<string, boolean | undefined> = {
       register: true, confirm: true, password: true,
       prepare: items ? prepared : undefined,
@@ -138,12 +138,12 @@ function Checklist() {
   function action(item: OnboardingItem): JSX.Element {
     switch (item.id) {
       case 'account_secured': return <A class="btn btn-sm" href="/portal/account" aria-label={`${item.label}: go to Account`}>Go to Account</A>;
-      case 'profile': return can('org.read') ? <A class="btn btn-sm" href="/portal/company" aria-label={`${item.label}: go to Company profile`}>Go to Company profile</A> : null;
       case 'logo':
         if (!can('org.logo')) return <span class="muted small">Ask a colleague to add it.</span>;
         return <A class="btn btn-sm" href="/portal/company#logo" aria-label={`${item.label}: go to the logo`}>Go to the logo</A>;
       case 'case_address':
-        return <A class="btn btn-sm" href={can('org.edit') ? '/portal/company#case-address' : '/portal/account#case-address'} aria-label={`${item.label}: go to the case address`}>Go to the case address</A>;
+        if (!can('org.edit')) return <span class="muted small">Ask an administrator to add it.</span>;
+        return <A class="btn btn-sm" href="/portal/company#case-address" aria-label={`${item.label}: go to the shipping address`}>Go to the shipping address</A>;
       case 'spec':
         if (can('spec.read') && menu.spec) return <A class="btn btn-sm" href="/portal/spec" aria-label={`${item.label}: go to Production spec`}>Go to Production spec</A>;
         return <span class="muted small">Ask a colleague who can see the production spec.</span>;
@@ -196,7 +196,7 @@ function Roles() {
           </tbody>
         </table>
       </div>
-      <p>Everyone except viewers can change the company logo. Each person can set their own case address in Account.</p>
+      <p>Everyone except viewers can change the company logo.</p>
     </section>
   );
 }

@@ -6,7 +6,6 @@ import { useAuth } from '../../lib/auth';
 import { formatDateTime } from '../../lib/format';
 import type { SessionRow } from '../../lib/types';
 import { Badge, Button, Card, Dialog, Field, Notice, PageHeader, Spinner, Toggle } from '../../ui/Common';
-import { CaseAddressCard } from './CaseAddressCard';
 import { RecoveryCodes } from '../../ui/RecoveryCodes';
 import { ROLE_INFO } from './Team';
 import { PASSWORD_HINT } from '../auth/ResetPassword';
@@ -17,40 +16,6 @@ function deviceLabel(ua: string | null | undefined): string {
   const browser = /Edg\//.test(ua) ? 'Edge' : /Firefox\//.test(ua) ? 'Firefox' : /Chrome\//.test(ua) ? 'Chrome' : /Safari\//.test(ua) ? 'Safari' : 'Browser';
   const os = /Windows/.test(ua) ? 'Windows' : /Android/.test(ua) ? 'Android' : /iPhone|iPad/.test(ua) ? 'iOS' : /Mac OS/.test(ua) ? 'macOS' : /Linux/.test(ua) ? 'Linux' : 'unknown system';
   return `${browser} on ${os}`;
-}
-
-function NotificationSettings() {
-  const qc = useQueryClient();
-  const q = createQuery(() => ({ queryKey: ['account-notifications'], queryFn: () => api<{ email: boolean }>('/api/account/notifications') }));
-  const [note, setNote] = createSignal<{ tone: 'good' | 'bad'; text: string } | null>(null);
-  const save = createMutation(() => ({
-    mutationFn: (email: boolean) => api<{ email: boolean }>('/api/account/notifications', { method: 'PUT', body: { email } }),
-    onSuccess: (r: { email: boolean } | undefined, email: boolean) => {
-      qc.setQueryData(['account-notifications'], { email: typeof r?.email === 'boolean' ? r.email : email });
-      setNote({ tone: 'good', text: (typeof r?.email === 'boolean' ? r.email : email) ? 'Email notifications are on.' : 'Email notifications are off. You will still see notices in the bell.' });
-    },
-    onError: (e: unknown) => setNote({ tone: 'bad', text: errorText(e) }),
-  }));
-  return (
-    <Card title="Notifications">
-      <Show when={q.isLoading}><Spinner /></Show>
-      <Show when={q.isError}><Notice tone="bad">{errorText(q.error)}</Notice></Show>
-      <Show when={q.data}>
-        {(d) => (
-          <div class="stack">
-            <Toggle
-              checked={d().email}
-              disabled={save.isPending}
-              onChange={(v) => { setNote(null); save.mutate(v); }}
-              label="Email notifications"
-              hint="We email you short messages about cases, holds, claims and specifications. They only show references and link to the platform. They never show patient names. Notices in the bell always stay on."
-            />
-            <div role="status"><Show when={note()}>{(n) => <Notice tone={n().tone}>{n().text}</Notice>}</Show></div>
-          </div>
-        )}
-      </Show>
-    </Card>
-  );
 }
 
 export default function Account() {
@@ -126,9 +91,7 @@ export default function Account() {
         </Card>
       </div>
 
-      <Show when={me()?.org?.kind === 'partner'}><CaseAddressCard /></Show>
 
-      <NotificationSettings />
 
       <Show when={mfa()}>
         <Card title="Recovery codes">

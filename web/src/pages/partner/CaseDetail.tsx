@@ -738,10 +738,10 @@ function PlainStatus(props: { c: CaseItem }) {
       <Notice
         tone={address() ? 'warn' : st().tone === 'good' ? 'good' : 'info'}
         title={st().text}
-        action={address() ? <A class="btn btn-sm" href="/portal/account#case-address">Open case address</A> : undefined}
+        action={address() ? <A class="btn btn-sm" href="/portal/company#case-address">Open shipping address</A> : undefined}
       >
         {address()
-          ? 'K Line needs your case address to send the aligners back. Add it, and we send this case on.'
+          ? 'K Line needs your shipping address to send the aligners back. Add it in the company profile, and we send this case on.'
           : props.c.manufacturingMode === 'direct' && props.c.portal.status === 'failed'
             ? 'Something went wrong on our side while passing your case on to K Line. Nothing is lost and it is not your doing. K Line has been told and is fixing it. You do not need to do anything.'
             : st().next ?? 'You do not need to do anything now.'}

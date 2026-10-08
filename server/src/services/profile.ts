@@ -546,9 +546,9 @@ export async function onboardingChecklist(a: AuthContext) {
     return {
       items: [
         ...(config.mfaRequired ? [{ id: 'account_secured', label: 'Secure your account with an authenticator app', done: secured }] : []),
-        { id: 'profile', label: 'Complete your company profile', done: profileComplete(o) },
+        // The company details card is gone from the profile page (8 Oct 2026), so there is no checklist step for it any more.
         { id: 'logo', label: 'Add your company logo', done: !!o.logo_file_id },
-        { id: 'case_address', label: 'Add your case address', done: isCompleteCaseAddress(o.settings?.case_address) },
+        { id: 'case_address', label: 'Add your shipping address', done: isCompleteCaseAddress(o.settings?.case_address) },
         { id: 'spec', label: 'Agree your production specification with K Line', done: spec },
         { id: 'dpa', label: 'Data processing agreement recorded by K Line', done: !!o.dpa },
         { id: 'approval', label: 'Approval by K Line', done: approved },

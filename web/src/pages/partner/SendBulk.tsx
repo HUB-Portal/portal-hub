@@ -27,8 +27,8 @@ function BlockedNotices(props: { locked: boolean; needsAddress: boolean; canEdit
         </Notice>
       </Show>
       <Show when={props.needsAddress}>
-        <Notice tone="warn" title="Add your case address first" action={<A class="btn btn-sm" href="/portal/account#case-address">Open case address</A>}>
-          K Line needs to know where to send your cases back to. Add a case address of your own in your account{props.canEditCompany ? ', or one for the whole company in the company profile' : ', or ask an administrator to add the company address'}, then come back. You can check your folders here, but the cases cannot be uploaded until an address is saved.
+        <Notice tone="warn" title="Add the shipping address first" action={props.canEditCompany ? <A class="btn btn-sm" href="/portal/company#case-address">Open shipping address</A> : undefined}>
+          K Line needs to know where to send your cases back to. {props.canEditCompany ? 'Add the shipping address in the company profile' : 'Ask an administrator to add the shipping address in the company profile'}, then come back. You can check your folders here, but the cases cannot be uploaded until it is saved.
         </Notice>
       </Show>
     </>

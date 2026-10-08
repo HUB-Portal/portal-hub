@@ -51,7 +51,7 @@ export default function BatchResult() {
           <div class="tile"><span class="num">{formatNumber(cases().length)}</span><span class="lbl">Cases</span></div>
           <div class="tile"><span class="num">{formatNumber(count((c) => c.portal.status === 'pushed'))}</span><span class="lbl">Received by K Line</span></div>
           <div class="tile"><span class="num">{formatNumber(count((c) => c.status !== 'draft' && c.status !== 'cancelled' && (c.portal.status === 'pending' || c.portal.status === 'pushing')))}</span><span class="lbl">Waiting to send</span></div>
-          <div class={`tile${failed().length ? ' tile-warn' : ''}`}><span class="num">{formatNumber(failed().length + delayed())}</span><span class="lbl">{failed().length ? 'Waiting for your case address' : 'Problem on our side'}</span></div>
+          <div class={`tile${failed().length ? ' tile-warn' : ''}`}><span class="num">{formatNumber(failed().length + delayed())}</span><span class="lbl">{failed().length ? 'Waiting for your shipping address' : 'Problem on our side'}</span></div>
           <div class={`tile${count((c) => c.status === 'draft') ? ' tile-warn' : ''}`}><span class="num">{formatNumber(count((c) => c.status === 'draft'))}</span><span class="lbl">Drafts to review</span></div>
         </div>
         <Card title="Cases" actions={failed().length && can('case.write') ? <Button size="sm" loading={retry.isPending} onClick={() => { void retryAll(); }}><RefreshCw size={14} aria-hidden="true" /> Try all failed again</Button> : null}>

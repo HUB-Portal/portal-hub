@@ -130,7 +130,7 @@ export function caseStatus(c: { status: string; manufacturingMode?: string; stag
     case 'ready':
       if (direct && c.portal.status === 'failed') {
         return c.portal.actionNeeded === 'case_address'
-          ? { text: 'Waiting for your case address', tone: 'warn', next: 'Add your case address' }
+          ? { text: 'Waiting for your shipping address', tone: 'warn', next: 'Add the shipping address' }
           : { text: 'Problem on our side', tone: 'info', next: 'We are fixing it, no action needed' };
       }
       if (direct && c.portal.status === 'pushed') return { text: 'Received, K Line is processing', tone: 'good', next: null };
