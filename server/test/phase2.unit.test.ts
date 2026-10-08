@@ -518,9 +518,10 @@ describe('packaging, checks, dates and geography', () => {
       { requirePts: true },
     );
     const e = c.errors.map((x) => x.code);
-    expect(e).toEqual(expect.arrayContaining(['duplicate_file', 'missing_mapping', 'file_rejected', 'files_processing']));
+    expect(e).toEqual(expect.arrayContaining(['duplicate_file', 'missing_mapping', 'file_rejected']));
+    expect(e).not.toContain('files_processing');
     const w = c.warnings.map((x) => x.code);
-    expect(w).toEqual(expect.arrayContaining(['missing_pts', 'trim_without_model', 'missing_steps']));
+    expect(w).toEqual(expect.arrayContaining(['missing_pts', 'trim_without_model', 'missing_steps', 'files_processing']));
     expect(c.errors.find((x) => x.code === 'file_rejected')?.message).toContain('Broken model.');
   });
 
