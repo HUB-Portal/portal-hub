@@ -7,6 +7,8 @@ export interface Me {
   authenticated: boolean;
   stage: Stage;
   csrfToken: string | null;
+  /** False while two factor sign in is switched off on the server. */
+  mfaRequired: boolean;
   user: { id: string; email: string; name: string; roles: string[]; mfaEnabled: boolean; recoveryCodesRemaining: number };
   org: { id: string; kind: 'kline' | 'partner'; name: string; code: string; status: string; country: string | null } | null;
   permissions: Permission[];
@@ -25,6 +27,8 @@ export interface CasePortal {
   step?: number;
   steps?: number;
   lastError?: string;
+  /** Partners only: the one thing they can fix themselves. The error text is never sent to them. */
+  actionNeeded?: 'case_address';
   /** True when the in memory demo portal was used: nothing was sent to the K Line portal. */
   demo?: boolean;
   /** Last status read from the K Line portal, its label, and when it was read. */
@@ -46,6 +50,8 @@ export interface CaseItem {
   priority: string;
   manufacturingMode: 'standard' | 'direct';
   patientMasked: string | null;
+  /** Partner people only: the full name of a patient their own company uploaded. K Line staff get the masked name. */
+  patientName?: string | null;
   hasPatientName: boolean;
   brandId?: string | null;
   siteCode?: string | null;

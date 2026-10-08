@@ -10,7 +10,7 @@ All demo companies are fictional: Acme Aligners, Contoso Smile and Fabrikam Dent
 
 ## What it does
 
-* Partner portal: sending cases through Direct manufacturing (a zip or folder with one folder per case), cases and a four step progress bar, quality claims, replacements and reworks, signed production specification, bag labels, supplied materials, company profile, team, ERP and API (keys, webhooks, CSV exports), access log.
+* Partner portal: sending cases through Direct manufacturing (a zip or folder with one folder per case; the drop zone stays pinned at the top, every drop adds to the list and uploads at once, names and patient ID are optional), cases and a four step progress bar, quality claims, replacements and reworks, signed production specification, bag labels, supplied materials, company profile, team, ERP and API (keys, webhooks, CSV exports), access log.
 * K Line console: intake and routing, holds, manual stage updates, partners and onboarding, sites and the transfer gate, factory (MES) integration, service keys, staff, claims, specifications, materials, audit log with chain verification.
 * Partner API (`/api/v1`) and factory API (`/api/mes/v1`) with their own guides in `docs/integration/`.
 
@@ -19,7 +19,7 @@ All demo companies are fictional: Acme Aligners, Contoso Smile and Fabrikam Dent
 * Node.js 22 or newer and npm (the repository is an npm workspace).
 * Docker, for the development database (PostgreSQL 16 on port 5433). ClamAV is optional in development.
 * PostgreSQL 16 in production, and ClamAV (clamd over TCP) for malware scanning.
-* A modern browser. The web app is React 18 and Vite 6.
+* A modern browser. The web app is SolidJS 1.9 and Vite 6 (see `docs/WEB_SOLIDJS.md`).
 
 ## Quick start (development)
 

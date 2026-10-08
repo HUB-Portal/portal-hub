@@ -6,7 +6,7 @@ Last checked against the code: 30 Sep 2026. This document describes what the cod
 
 ```
  Partner browser            K Line browser             Partner ERP             Factory system (MES)
- (React app)                (React app, /console)      (Bearer key)            (Bearer service key)
+ (SolidJS app)             (SolidJS app, /console)    (Bearer key)            (Bearer service key)
       |                           |                        |                          |
       | HTTPS, session cookie     | HTTPS, session cookie  | /api/v1                  | /api/mes/v1
       v                           v                        v                          v
@@ -37,7 +37,7 @@ One image, three entry points: `dist/index.js` (API), `dist/worker.js` (worker) 
 
 ### Web app
 
-React 18, react-router-dom 7, TanStack Query 5, three.js for the 3D viewer, `fflate` for zip reading in the browser. The app is built by Vite and served by the API. Fonts are self hosted. The browser makes no third party requests (the CSP would block them). Routes are in `web/src/main.tsx`:
+SolidJS 1.9, `@solidjs/router`, TanStack Query 5 (`@tanstack/solid-query`), `lucide-solid`, three.js for the 3D viewer, `fflate` for zip reading in the browser. The app is built by Vite and served by the API. Fonts are self hosted. The browser makes no third party requests (the CSP would block them). Routes are in `web/src/main.tsx`:
 
 | Area | Routes |
 |---|---|
@@ -251,6 +251,7 @@ Read from the environment and validated by zod in `server/src/config.ts`. In dev
 | `LOG_LEVEL` | `info` (`silent` in tests) | Log level. |
 | `OIDC_GOOGLE_CLIENT_ID`, `OIDC_GOOGLE_CLIENT_SECRET` | none | Both together switch on Google sign in for K Line staff. |
 | `OIDC_ALLOWED_DOMAIN` | none | Workspace domain (for example `example.com`) that staff accounts must belong to. Required when Google sign in is on. |
+| `MFA_REQUIRED` | `false` | Master switch for two factor sign in. **Off for now (8 Oct 2026):** a password, an invitation or confirmation link, or Google alone gives a full session; there is no authenticator setup and no step up code; the web app hides the authenticator pages and texts. Set `true` to bring the second factor back for everyone. Existing secrets and recovery codes are kept. |
 | `OIDC_REQUIRE_LOCAL_MFA` | `true` | Cannot be turned off. Google is only the first factor and the authenticator code is always required (two factor sign in for everyone). Any value but `true` stops the server from starting. |
 | `OIDC_GOOGLE_DISCOVERY_URL` | Google's discovery document | Only tests and proxies change it. Must be https in production. |
 | `JOB_CONCURRENCY` | `4` | Read directly by the worker. Between 1 and 8. |

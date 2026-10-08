@@ -89,7 +89,28 @@ export function portalBlock(row: any) {
   };
 }
 
-export function caseDto(row: any) {
+/**
+ * What a partner may read about the connection to the K Line portal. The error text (`lastError`, `syncError`) is K Line's own business, so it is
+ * never sent to a partner: it would only tell them about our setup, which they cannot change. The one thing a partner can fix is a missing
+ * case address, which is reported as `actionNeeded`.
+ */
+export function partnerPortalBlock(row: any) {
+  const { lastError, syncError: _syncError, ...rest } = portalBlock(row) as ReturnType<typeof portalBlock> & { lastError?: string; syncError?: string };
+  return { ...rest, ...(lastError && /case address/i.test(lastError) ? { actionNeeded: 'case_address' as const } : {}) };
+}
+
+/**
+ * What the reader of a case may see. Partner people (not API keys, whose scopes decide what they may read) get the partner view: their own patients'
+ * names in full. Only K Line administrators (the ones who can manage the factory and portal connections) get the text of an integration error;
+ * everybody else, partners included, only learns that the hand over is delayed.
+ */
+export const partnerView = (a: AuthContext) => ({
+  partner: a.orgKind === 'partner' && a.kind === 'user',
+  integration: a.orgKind === 'kline' && a.kind === 'user' && a.permissions.has('admin.mes'),
+});
+
+/** `partner` is true when the reader belongs to the partner organisation. They see their own patient names in full and no integration errors. */
+export function caseDto(row: any, view: { partner?: boolean; integration?: boolean } = {}) {
   const p = patientOf(row);
   return {
     id: row.id,
@@ -101,6 +122,8 @@ export function caseDto(row: any) {
     priority: row.priority,
     manufacturingMode: row.manufacturing_mode as 'standard' | 'direct',
     patientMasked: p.full ? maskName(p.full) : null,
+    // The company that uploaded a name needs no masking from its own people (review of 8 Oct 2026, A1). K Line staff still get the masked name.
+    ...(view.partner ? { patientName: p.full ?? null } : {}),
     hasPatientName: !!p.full,
     hasInstructions: !!row.notes_enc,
     instructionsLocked: !INSTRUCTION_STATES.includes(row.status),
@@ -118,7 +141,7 @@ export function caseDto(row: any) {
     fileCount: row.file_count ?? 0,
     checks: { errors: row.checks?.errors ?? [], warnings: row.checks?.warnings ?? [] },
     warningsAcknowledged: row.warnings_acknowledged,
-    portal: portalBlock(row),
+    portal: view.integration ? portalBlock(row) : partnerPortalBlock(row),
     bulkBatchId: row.bulk_batch_id ?? null,
     parentId: row.parent_id ?? null,
     parentRef: row.parent_ref ?? null,
@@ -182,6 +205,13 @@ function cleanName(raw: string, max: number, code: string): string {
   return v;
 }
 
+/** A direct manufacturing name: optional, so an empty value is allowed and stored as an empty field. */
+function cleanOptionalName(raw: string): string {
+  const v = raw.normalize('NFC').replace(/[\u0000-\u001f\u007f]/g, '').replace(/\s+/g, ' ').trim();
+  if (v.length > NAME_MAX) throw badRequest(`Names can be at most ${NAME_MAX} characters.`, 'name_too_long');
+  return v;
+}
+
 function checkInstructions(text: string): string {
   if (text.length > INSTRUCTIONS_MAX) throw badRequest(`Instructions can be at most ${INSTRUCTIONS_MAX.toLocaleString('en-GB')} characters.`, 'instructions_too_long');
   return text;
@@ -236,11 +266,14 @@ export async function insertCase(c: PoolClient, input: InsertCaseInput): Promise
   if (input.mode === 'direct') {
     const first = input.firstName!;
     const last = input.lastName!;
+    // The names are optional. Two empty fields (not NULL) keep the database rule that a direct case has both, and read back as "no name".
     firstEnc = encryptField(first, fieldAad.casePatientFirst(id));
     lastEnc = encryptField(last, fieldAad.casePatientLast(id));
-    patientEnc = encryptField(`${first} ${last}`, fieldAad.casePatient(id));
-    bidxs = blindIndexes(first, last);
-    bidx = bidxs[0]!;
+    patientEnc = encryptField(`${first} ${last}`.trim(), fieldAad.casePatient(id));
+    if (first || last) {
+      bidxs = blindIndexes(first, last);
+      bidx = bidxs[0]!;
+    }
   } else if (input.patientName) {
     patientEnc = encryptField(input.patientName, fieldAad.casePatient(id));
     bidx = blindIndex(input.patientName);
@@ -284,7 +317,7 @@ export async function createCase(ctx: DbCtx, a: AuthContext, input: CreateCaseIn
   const instructions = input.instructions ? checkInstructions(input.instructions) : null;
   return tx(ctx, async (c) => {
     const r = await insertCase(c, { orgId: a.orgId, actor: actorOf(a, req), mode: 'standard', caseId, patientName, brandId: input.brandId, priority: input.priority, instructions });
-    return caseDto(await loadCase(c, r.id));
+    return caseDto(await loadCase(c, r.id), partnerView(a));
   });
 }
 
@@ -306,6 +339,37 @@ export interface ListQuery {
   siteCode?: string;
   page: number;
   pageSize: number;
+}
+
+/**
+ * Cases that need the partner to do something: on hold, a rejected file, or a missing case address. A failed push for
+ * any other reason is K Line's to fix (it is retried and K Line is alerted), so it does not count for a partner. K Line staff see every failure.
+ */
+export const attentionSql = (a: AuthContext): string => {
+  const failed = a.orgKind === 'partner'
+    ? `(c.portal_push->>'status' = 'failed' AND c.portal_push->>'lastError' ILIKE '%case address%')`
+    : `c.portal_push->>'status' = 'failed'`;
+  // The checks no longer stop a submission, so a draft with check errors is not something the partner has to deal with.
+  return `(c.status = 'on_hold' OR ${failed} OR (c.status IN ('draft', 'submitted') AND EXISTS (SELECT 1 FROM files f WHERE f.case_id = c.id AND f.state = 'rejected')))`;
+};
+
+/** Counts for the filter chips, the menu and the Direct manufacturing page: how many cases need attention and how many are drafts. */
+export async function caseCounts(ctx: DbCtx, a: AuthContext): Promise<{ all: number; attention: number; drafts: number }> {
+  const params: unknown[] = [];
+  const where: string[] = [];
+  if (a.orgKind === 'partner') { params.push(a.orgId); where.push(`c.org_id = $${params.length}`); }
+  const scoped = scopeCondition(a, (v) => { params.push(v); return `$${params.length}`; });
+  if (scoped) where.push(scoped);
+  const w = where.length ? `WHERE ${where.join(' AND ')}` : '';
+  return tx(ctx, async (c) => {
+    const r = await one<any>(
+      c,
+      `SELECT count(*)::int AS "all", count(*) FILTER (WHERE ${attentionSql(a)})::int AS attention, count(*) FILTER (WHERE c.status = 'draft')::int AS drafts
+         FROM cases c ${w}`,
+      params,
+    );
+    return { all: r?.all ?? 0, attention: r?.attention ?? 0, drafts: r?.drafts ?? 0 };
+  });
 }
 
 const escapeLike = (s: string) => s.replace(/[\\%_]/g, (m) => '\\' + m);
@@ -338,7 +402,7 @@ export async function listCases(ctx: DbCtx, a: AuthContext, q: ListQuery) {
   }
   switch (q.status) {
     case 'attention':
-      where.push(`(c.status = 'on_hold' OR c.portal_push->>'status' = 'failed' OR (c.status IN ('draft', 'submitted') AND EXISTS (SELECT 1 FROM files f WHERE f.case_id = c.id AND f.state = 'rejected')))`);
+      where.push(attentionSql(a));
       break;
     case 'production':
       where.push(`c.status IN ('submitted', 'ready', 'received', 'in_production')`);
@@ -363,7 +427,7 @@ export async function listCases(ctx: DbCtx, a: AuthContext, q: ListQuery) {
     const total = await one<{ n: number }>(c, `SELECT count(*)::int AS n FROM cases c ${w}`, params);
     const rows = await many<any>(
       c,
-      `${CASE_SELECT.replace('SELECT c.*,', `SELECT c.*, ${hitSql} AS name_hit,`)} ${w} ORDER BY c.created_at DESC, c.id LIMIT ${add(q.pageSize)} OFFSET ${add((q.page - 1) * q.pageSize)}`,
+      `${CASE_SELECT.replace('SELECT c.*,', `SELECT c.*, ${hitSql} AS name_hit,`)} ${w} ORDER BY c.created_at DESC, length(c.ref) DESC, c.ref DESC LIMIT ${add(q.pageSize)} OFFSET ${add((q.page - 1) * q.pageSize)}`,
       params,
     );
     // K Line staff who find a case through a patient name leave a trace in the partner's access log.
@@ -372,7 +436,7 @@ export async function listCases(ctx: DbCtx, a: AuthContext, q: ListQuery) {
         await audit(c, { actorType: a.kind === 'user' ? 'user' : 'api_key', actorId: a.userId ?? a.apiKeyId, orgId: r.org_id, action: 'case.name_searched', targetType: 'case', targetId: r.id, details: { ref: r.ref } });
       }
     }
-    return { items: rows.map(caseDto), total: total?.n ?? 0, page: q.page, pageSize: q.pageSize };
+    return { items: rows.map((r) => caseDto(r, partnerView(a))), total: total?.n ?? 0, page: q.page, pageSize: q.pageSize };
   });
 }
 
@@ -415,9 +479,9 @@ export async function getCaseDetail(ctx: DbCtx, id: string, a: AuthContext, req?
     const children = await many<any>(c, `SELECT id, ref, kind, status, priority, created_at FROM cases WHERE parent_id = $1 ORDER BY created_at, id`, [id]);
     const claims = await many<any>(c, `SELECT id, number, status, summary, created_at FROM claims WHERE case_id = $1 ORDER BY created_at DESC, id`, [id]);
     return {
-      case: caseDto(row),
+      case: caseDto(row, partnerView(a)),
       files: files.map(fileDto),
-      events: events.map((e) => ({ id: e.id, type: e.type, actorType: e.actor_type, sourceLabel: eventSourceLabel(e), data: e.data ?? {}, createdAt: iso(e.created_at) })),
+      events: events.filter((e) => !(a.orgKind === 'partner' && a.kind === 'user' && e.type === 'portal_push_failed')).map((e) => ({ id: e.id, type: e.type, actorType: e.actor_type, sourceLabel: eventSourceLabel(e), data: e.data ?? {}, createdAt: iso(e.created_at) })),
       instructions,
       children: children.map((x) => ({ id: x.id, ref: x.ref, kind: x.kind, status: x.status, priority: x.priority, createdAt: iso(x.created_at) })),
       claims: claims.map((x) => ({ id: x.id, number: x.number, status: x.status, summary: x.summary, createdAt: iso(x.created_at) })),
@@ -487,17 +551,18 @@ export async function patchCase(ctx: DbCtx, a: AuthContext, id: string, input: P
     }
     if (direct && (input.firstName !== undefined || input.lastName !== undefined)) {
       const cur = patientOf(row);
-      const first = input.firstName !== undefined ? cleanName(input.firstName, NAME_MAX, 'first_name_required') : cur.first!;
-      const last = input.lastName !== undefined ? cleanName(input.lastName, NAME_MAX, 'last_name_required') : cur.last!;
+      const first = input.firstName !== undefined ? cleanOptionalName(input.firstName) : cur.first ?? '';
+      const last = input.lastName !== undefined ? cleanOptionalName(input.lastName) : cur.last ?? '';
       set('patient_first_enc', encryptField(first, fieldAad.casePatientFirst(id)));
       set('patient_last_enc', encryptField(last, fieldAad.casePatientLast(id)));
-      set('patient_enc', encryptField(`${first} ${last}`, fieldAad.casePatient(id)));
-      const bis = blindIndexes(first, last);
-      set('patient_bidx', bis[0]);
+      set('patient_enc', encryptField(`${first} ${last}`.trim(), fieldAad.casePatient(id)));
+      const bis = first || last ? blindIndexes(first, last) : [];
+      set('patient_bidx', bis[0] ?? null);
       set('patient_bidxs', bis);
+      hasName = !!(first || last);
     }
     const finalCaseId = newCaseId !== undefined ? newCaseId : row.partner_case_id;
-    if (!finalCaseId && !hasName) throw badRequest('A case needs a case ID or a patient name.', 'identifier_required');
+    if (!direct && !finalCaseId && !hasName) throw badRequest('A case needs a case ID or a patient name.', 'identifier_required');
 
     let instructionsChanged = false;
     if (input.instructions !== undefined) {
@@ -506,7 +571,7 @@ export async function patchCase(ctx: DbCtx, a: AuthContext, id: string, input: P
       set('notes_enc', text ? encryptField(text, fieldAad.caseNotes(id)) : null);
       instructionsChanged = true;
     }
-    if (!sets.length) return { case: caseDto(row) };
+    if (!sets.length) return { case: caseDto(row, partnerView(a)) };
     try {
       await c.query(`UPDATE cases SET ${sets.join(', ')}, updated_at = now() WHERE id = $1`, params);
     } catch (err: any) {
@@ -519,7 +584,7 @@ export async function patchCase(ctx: DbCtx, a: AuthContext, id: string, input: P
       await auditFor(c, actor, row.org_id, 'case.instructions_updated', id, { ref: row.ref });
     }
     if (touchesDetails) await auditFor(c, actor, row.org_id, 'case.updated', id, { ref: row.ref });
-    return { case: caseDto(await loadCase(c, id)) };
+    return { case: caseDto(await loadCase(c, id), partnerView(a)) };
   });
 }
 
@@ -590,11 +655,10 @@ export async function submitCase(ctx: DbCtx, a: AuthContext, id: string, opts: {
     // Early gate for direct manufacturing cases: the case address is sent to the portal, so a missing one is reported now.
     if (row.manufacturing_mode === 'direct') await assertCaseAddress(c, row.org_id, row.created_by ?? null);
 
+    // The checks still run and are kept on the case for K Line to read, but nothing in them stops a submission (decision of 8 Oct 2026:
+    // no restriction on sending a case; the only error left is a failed hand over to the K Line portal, which only K Line administrators see).
     const checks = await recomputeCase(c, id);
-    if (checks && checks.errors.length) throw new AppError(409, 'checks_failed', 'Fix the problems with this case before submitting it.', { errors: checks.errors });
-    if (checks && checks.warnings.length && !opts.acknowledgeWarnings) {
-      throw new AppError(409, 'warnings_need_confirmation', 'There are warnings. Please read and confirm them to continue.', { warnings: checks.warnings });
-    }
+    const warned = !!checks?.warnings.length;
 
     const { manual, site, slaDays } = await resolveRouting(c, row.org_id, true, { direct: row.manufacturing_mode === 'direct' });
 
@@ -611,18 +675,18 @@ export async function submitCase(ctx: DbCtx, a: AuthContext, id: string, opts: {
               hold_reason = NULL, stage = NULL, received_at = NULL, started_at = NULL, finished_at = NULL, warnings_acknowledged = $7, warnings_acknowledged_at = CASE WHEN $7 THEN now() ELSE NULL END, warnings_acknowledged_by = $8,
               portal_push = CASE WHEN $9 THEN jsonb_build_object('status', 'pending', 'attempts', 0) ELSE portal_push END, updated_at = now()
         WHERE id = $1`,
-      [id, ready ? 'ready' : 'submitted', ready ? now : null, ready ? site?.id ?? null : null, ready ? addBusinessDays(now, slaDays) : null, spec?.id ?? null, !!(checks?.warnings.length && opts.acknowledgeWarnings), a.userId, direct],
+      [id, ready ? 'ready' : 'submitted', ready ? now : null, ready ? site?.id ?? null : null, ready ? addBusinessDays(now, slaDays) : null, spec?.id ?? null, warned, a.userId, direct],
     );
     await c.query(`INSERT INTO case_events (org_id, case_id, type, actor_type, actor_id, data) VALUES ($1, $2, $3, $4, $5, $6::jsonb)`, [
       row.org_id, id, fromHold ? 'resubmitted' : 'submitted', actor.actorType, actor.actorId,
-      JSON.stringify({ status: ready ? 'ready' : 'submitted', site: ready ? site?.code ?? null : null, warnings: checks?.warnings.length ?? 0, acknowledged: !!opts.acknowledgeWarnings }),
+      JSON.stringify({ status: ready ? 'ready' : 'submitted', site: ready ? site?.code ?? null : null, warnings: checks?.warnings.length ?? 0, errors: checks?.errors.length ?? 0 }),
     ]);
     await auditFor(c, actor, row.org_id, fromHold ? 'case.resubmitted' : 'case.submitted', id, { ref: row.ref, status: ready ? 'ready' : 'submitted', mode: row.manufacturing_mode });
     if (!ready) await enqueue(c, 'notify.kline', { kind: 'case_submitted', caseId: id }, { orgId: row.org_id });
     if (direct) await enqueue(c, 'bulk.push', { caseId: id }, { orgId: row.org_id, maxAttempts: 5 });
     await refreshBatch(c, row.bulk_batch_id);
     await emitCaseWebhook(c, id, 'case.submitted');
-    return { case: caseDto(await loadCase(c, id)) };
+    return { case: caseDto(await loadCase(c, id), partnerView(a)) };
   });
 }
 
@@ -638,7 +702,7 @@ export async function cancelCase(ctx: DbCtx, a: AuthContext, id: string, req?: {
     await auditFor(c, actor, row.org_id, 'case.cancelled', id, { ref: row.ref, from: row.status });
     await refreshBatch(c, row.bulk_batch_id);
     await emitCaseWebhook(c, id, 'case.cancelled', { status: 'cancelled', stage: null });
-    return { case: caseDto(await loadCase(c, id)) };
+    return { case: caseDto(await loadCase(c, id), partnerView(a)) };
   });
 }
 

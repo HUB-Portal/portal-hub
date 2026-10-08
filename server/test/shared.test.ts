@@ -127,7 +127,9 @@ describe('bulk direct manufacturing folder names', () => {
     expect(marc.instructionFiles.map((d) => d.name)).toEqual(['notes.txt']);
     const other = cases.find((c) => c.firstName === 'Kowalski')!;
     expect(other.documents.every((d) => d.kind === 'csv')).toBe(true);
-    expect(validateBulkCase({ ...marc, firstName: '' })).toContain('Patient first name is missing.');
+    // the names are optional, so an empty first name is no problem any more
+    expect(validateBulkCase({ ...marc, firstName: '' })).toEqual([]);
+    expect(validateBulkCase({ ...marc, firstName: 'x'.repeat(51) })).toContain('First name is longer than 50 characters.');
   });
 });
 

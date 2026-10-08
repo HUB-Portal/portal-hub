@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { createEffect, createSignal, onCleanup, Show } from 'solid-js';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { STLLoader } from 'three/examples/jsm/loaders/STLLoader.js';
@@ -18,13 +18,16 @@ async function fetchBuffer(url: string): Promise<ArrayBuffer> {
 }
 
 /** 3D view of an STL model with its PTS trim line on top. Open trim lines are drawn red. */
-export function StlViewer({ modelUrl, ptsUrl, label }: Props) {
-  const host = useRef<HTMLDivElement>(null);
-  const [msg, setMsg] = useState<string | null>(null);
-  const [trim, setTrim] = useState<{ closed: boolean; count: number } | null>(null);
+export function StlViewer(props: Props) {
+  let host!: HTMLDivElement;
+  const [msg, setMsg] = createSignal<string | null>(null);
+  const [trim, setTrim] = createSignal<{ closed: boolean; count: number } | null>(null);
 
-  useEffect(() => {
-    const el = host.current;
+  // Runs again when the model or the trim line changes: it reads the two urls here and nowhere else, so the scene is built once per pair.
+  createEffect(() => {
+    const modelUrl = props.modelUrl;
+    const ptsUrl = props.ptsUrl;
+    const el = host;
     setTrim(null);
     if (!el || !modelUrl) { setMsg(modelUrl ? null : 'Choose a model to see it here.'); return; }
     let renderer: THREE.WebGLRenderer;
@@ -141,7 +144,7 @@ export function StlViewer({ modelUrl, ptsUrl, label }: Props) {
       }
     })();
 
-    return () => {
+    onCleanup(() => {
       dead = true;
       cancelAnimationFrame(raf);
       ro.disconnect();
@@ -149,17 +152,19 @@ export function StlViewer({ modelUrl, ptsUrl, label }: Props) {
       disposables.forEach((d) => d.dispose());
       renderer.dispose();
       renderer.domElement.remove();
-    };
-  }, [modelUrl, ptsUrl]);
+    });
+  });
 
   return (
-    <div className="viewer" ref={host} role="img" aria-label={label}>
-      {msg ? <div className="viewer-msg" role="status">{msg}</div> : null}
-      {trim ? (
-        <div className="viewer-legend">
-          <span><span className="swatch" style={{ background: trim.closed ? '#0f8a5f' : '#e11d2e' }} />{trim.closed ? 'Trim line is closed' : 'Trim line is open'}</span>
-        </div>
-      ) : null}
+    <div class="viewer" ref={host} role="img" aria-label={props.label}>
+      <Show when={msg()}><div class="viewer-msg" role="status">{msg()}</div></Show>
+      <Show when={trim()}>
+        {(t) => (
+          <div class="viewer-legend">
+            <span><span class="swatch" style={{ background: t().closed ? '#0f8a5f' : '#e11d2e' }} />{t().closed ? 'Trim line is closed' : 'Trim line is open'}</span>
+          </div>
+        )}
+      </Show>
     </div>
   );
 }

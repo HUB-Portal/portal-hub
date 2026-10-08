@@ -1,5 +1,6 @@
-import { Link, useSearchParams } from 'react-router-dom';
-import { keepPreviousData, useQuery } from '@tanstack/react-query';
+import { For, Show } from 'solid-js';
+import { A, useSearchParams } from '@solidjs/router';
+import { createQuery, keepPreviousData } from '@tanstack/solid-query';
 import { api, errorText, qs } from '../../lib/api';
 import { useAuth } from '../../lib/auth';
 import { useFilterOptions } from '../../lib/console';
@@ -12,41 +13,43 @@ async function fetchClaims(staff: boolean, p: { status: string; orgId: string; p
   return normalizeClaimList(await api(`${base}${qs({ status: p.status, orgId: p.orgId, page: p.page })}`));
 }
 
-export function ClaimRows({ items, staff }: { items: Claim[]; staff: boolean }) {
-  const side = staff ? 'kline' : 'partner';
-  const base = staff ? '/console/claims' : '/portal/claims';
-  const caseBase = staff ? '/console/cases' : '/portal/cases';
+export function ClaimRows(props: { items: Claim[]; staff: boolean }) {
+  const side = () => (props.staff ? 'kline' : 'partner');
+  const base = () => (props.staff ? '/console/claims' : '/portal/claims');
+  const caseBase = () => (props.staff ? '/console/cases' : '/portal/cases');
   return (
-    <div className="table-wrap">
-      <table className="table">
+    <div class="table-wrap">
+      <table class="table">
         <thead>
-          <tr><th>Claim</th>{staff ? <th>Partner</th> : null}<th>Case</th><th>Summary</th><th>Status</th><th>Opened</th></tr>
+          <tr><th>Claim</th><Show when={props.staff}><th>Partner</th></Show><th>Case</th><th>Summary</th><th>Status</th><th>Opened</th></tr>
         </thead>
         <tbody>
-          {items.map((c) => (
-            <tr key={c.id}>
-              <td className="link-cell nowrap"><Link to={`${base}/${c.id}`}>{c.number || 'Claim'}</Link></td>
-              {staff ? <td>{c.orgName ?? ''}</td> : null}
-              <td className="link-cell nowrap">{c.caseId ? <Link to={`${caseBase}/${c.caseId}`}>{c.caseRef ?? 'Case'}</Link> : (c.caseRef ?? '')}</td>
-              <td style={{ minWidth: 200 }}>{c.summary}{c.itemCount ? <div className="muted small">{formatNumber(c.itemCount)} {c.itemCount === 1 ? 'aligner' : 'aligners'}</div> : null}</td>
-              <td><Badge tone={claimStatusTone(c.status)}>{claimStatusLabel(c.status, side)}</Badge></td>
-              <td className="nowrap">{formatDate(c.createdAt)}</td>
-            </tr>
-          ))}
+          <For each={props.items}>
+            {(c) => (
+              <tr>
+                <td class="link-cell nowrap"><A href={`${base()}/${c.id}`}>{c.number || 'Claim'}</A></td>
+                <Show when={props.staff}><td>{c.orgName ?? ''}</td></Show>
+                <td class="link-cell nowrap">{c.caseId ? <A href={`${caseBase()}/${c.caseId}`}>{c.caseRef ?? 'Case'}</A> : (c.caseRef ?? '')}</td>
+                <td style={{ 'min-width': '200px' }}>{c.summary}{c.itemCount ? <div class="muted small">{formatNumber(c.itemCount)} {c.itemCount === 1 ? 'aligner' : 'aligners'}</div> : null}</td>
+                <td><Badge tone={claimStatusTone(c.status)}>{claimStatusLabel(c.status, side())}</Badge></td>
+                <td class="nowrap">{formatDate(c.createdAt)}</td>
+              </tr>
+            )}
+          </For>
         </tbody>
       </table>
     </div>
   );
 }
 
-export function PartnerSelect({ id, value, onChange }: { id: string; value: string; onChange: (v: string) => void }) {
+export function PartnerSelect(props: { id: string; value: string; onChange: (v: string) => void }) {
   const opts = useFilterOptions();
   return (
-    <div className="field" style={{ minWidth: 160, flexBasis: 200 }}>
-      <label htmlFor={id}>Partner</label>
-      <select id={id} value={value} onChange={(e) => onChange(e.target.value)}>
+    <div class="field" style={{ 'min-width': '160px', 'flex-basis': '200px' }}>
+      <label for={props.id}>Partner</label>
+      <select id={props.id} value={props.value} onChange={(e) => props.onChange(e.currentTarget.value)}>
         <option value="">All partners</option>
-        {opts.partners.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+        <For each={opts.partners}>{(p) => <option value={p.id}>{p.name}</option>}</For>
       </select>
     </div>
   );
@@ -59,53 +62,54 @@ const filtersFor = (side: 'partner' | 'kline'): { id: string; label: string }[] 
 ];
 
 /** Claims list for partners, and for K Line staff when `staff` is set. */
-export function ClaimsList({ staff }: { staff: boolean }) {
+export function ClaimsList(props: { staff: boolean }) {
   const { can } = useAuth();
   const [params, setParams] = useSearchParams();
-  const status = params.get('status') ?? '';
-  const orgId = staff ? (params.get('orgId') ?? '') : '';
-  const page = Math.max(1, Number(params.get('page') ?? 1) || 1);
-  const q = useQuery({
-    queryKey: [staff ? 'console-claims' : 'claims', { status, orgId, page }],
-    queryFn: () => fetchClaims(staff, { status, orgId, page }),
+  const one = (v: string | string[] | undefined) => (Array.isArray(v) ? (v[0] ?? '') : (v ?? ''));
+  const status = () => one(params.status);
+  const orgId = () => (props.staff ? one(params.orgId) : '');
+  const page = () => Math.max(1, Number(one(params.page) || 1) || 1);
+  const q = createQuery(() => ({
+    queryKey: [props.staff ? 'console-claims' : 'claims', { status: status(), orgId: orgId(), page: page() }],
+    queryFn: () => fetchClaims(props.staff, { status: status(), orgId: orgId(), page: page() }),
     placeholderData: keepPreviousData,
-  });
+  }));
 
+  /** Sets one filter in the address and goes back to the first page. An empty value removes the filter. */
   function setParam(key: string, value: string) {
-    const next = new URLSearchParams(params);
-    if (value) next.set(key, value); else next.delete(key);
-    next.delete('page');
-    setParams(next);
+    setParams({ [key]: value || undefined, page: undefined });
   }
 
   return (
-    <div className="page">
+    <div class="page">
       <PageHeader
         title="Quality claims"
-        subtitle={staff ? 'Claims from every partner. Triage them, talk to the partner and decide.' : 'Problems you found with aligners from K Line, and how they were resolved.'}
-        actions={!staff && can('case.read') ? <Link className="btn" to="/portal/cases">Open a case to report an issue</Link> : undefined}
+        subtitle={props.staff ? 'Claims from every partner. Triage them, talk to the partner and decide.' : 'Problems you found with aligners from K Line, and how they were resolved.'}
+        actions={!props.staff && can('case.read') ? <A class="btn" href="/portal/cases">Open a case to report an issue</A> : undefined}
       />
       <Card>
-        <div className="toolbar">
-          {staff ? <PartnerSelect id="cl-partner" value={orgId} onChange={(v) => setParam('orgId', v)} /> : null}
+        <div class="toolbar">
+          <Show when={props.staff}><PartnerSelect id="cl-partner" value={orgId()} onChange={(v) => setParam('orgId', v)} /></Show>
         </div>
-        <div className="tabs" role="group" aria-label="Filter by status">
-          {filtersFor(staff ? 'kline' : 'partner').map((f) => (
-            <button key={f.id} type="button" className="tab" aria-pressed={status === f.id} onClick={() => setParam('status', f.id)}>{f.label}</button>
-          ))}
+        <div class="tabs" role="group" aria-label="Filter by status">
+          <For each={filtersFor(props.staff ? 'kline' : 'partner')}>
+            {(f) => <button type="button" class="tab" aria-pressed={status() === f.id} onClick={() => setParam('status', f.id)}>{f.label}</button>}
+          </For>
         </div>
-        {q.isError ? <Notice tone="bad" action={<Button size="sm" onClick={() => q.refetch()}>Try again</Button>}>{errorText(q.error)}</Notice> : null}
-        {q.isLoading ? <Spinner /> : null}
-        {q.data && q.data.items.length === 0 ? (
-          <Empty title="No claims found">{status || orgId ? 'Try a different filter.' : staff ? 'Claims from partners will appear here.' : 'When you report an issue with a case it will appear here. Open a shipped case and choose Report an issue.'}</Empty>
-        ) : null}
-        {q.data && q.data.items.length ? (
-          <>
-            <p className="muted small" role="status">{formatNumber(q.data.total)} {q.data.total === 1 ? 'claim' : 'claims'}</p>
-            <ClaimRows items={q.data.items} staff={staff} />
-            <Pagination page={page} pageSize={q.data.pageSize} total={q.data.total} onPage={(p) => { const next = new URLSearchParams(params); next.set('page', String(p)); setParams(next); }} />
-          </>
-        ) : null}
+        <Show when={q.isError}><Notice tone="bad" action={<Button size="sm" onClick={() => q.refetch()}>Try again</Button>}>{errorText(q.error)}</Notice></Show>
+        <Show when={q.isLoading}><Spinner /></Show>
+        <Show when={q.data && q.data.items.length === 0}>
+          <Empty title="No claims found">{status() || orgId() ? 'Try a different filter.' : props.staff ? 'Claims from partners will appear here.' : 'When you report an issue with a case it will appear here. Open a shipped case and choose Report an issue.'}</Empty>
+        </Show>
+        <Show when={q.data && q.data.items.length ? q.data : null}>
+          {(d) => (
+            <>
+              <p class="muted small" role="status">{formatNumber(d().total)} {d().total === 1 ? 'claim' : 'claims'}</p>
+              <ClaimRows items={d().items} staff={props.staff} />
+              <Pagination page={page()} pageSize={d().pageSize} total={d().total} onPage={(p) => setParams({ page: String(p) })} />
+            </>
+          )}
+        </Show>
       </Card>
     </div>
   );

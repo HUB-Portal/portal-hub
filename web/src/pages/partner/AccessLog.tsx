@@ -1,5 +1,5 @@
-import { useState } from 'react';
-import { useInfiniteQuery } from '@tanstack/react-query';
+import { createSignal, For, Show } from 'solid-js';
+import { createInfiniteQuery } from '@tanstack/solid-query';
 import { api, errorText, qs } from '../../lib/api';
 import { actionLabel, detailText, formatDateTime } from '../../lib/format';
 import type { AuditEntry } from '../../lib/types';
@@ -14,47 +14,49 @@ const FILTERS = [
 ];
 
 export default function AccessLog() {
-  const [action, setAction] = useState('');
-  const q = useInfiniteQuery({
-    queryKey: ['audit', action],
+  const [action, setAction] = createSignal('');
+  const q = createInfiniteQuery(() => ({
+    queryKey: ['audit', action()],
     initialPageParam: undefined as number | undefined,
-    queryFn: ({ pageParam }) => api<{ entries: AuditEntry[]; nextBefore: number | null }>(`/api/audit${qs({ limit: 50, before: pageParam, action })}`),
-    getNextPageParam: (last) => last.nextBefore ?? undefined,
-  });
-  const rows = q.data?.pages.flatMap((p) => p.entries) ?? [];
+    queryFn: ({ pageParam }) => api<{ entries: AuditEntry[]; nextBefore: number | null }>(`/api/audit${qs({ limit: 50, before: pageParam, action: action() })}`),
+    getNextPageParam: (last: { entries: AuditEntry[]; nextBefore: number | null }) => last.nextBefore ?? undefined,
+  }));
+  const rows = () => q.data?.pages.flatMap((p) => p.entries) ?? [];
   return (
-    <div className="page">
+    <div class="page">
       <PageHeader title="Access log" subtitle="Who signed in, changed settings, showed a patient name or opened your files. This includes K Line staff." />
       <Card>
-        <div className="toolbar">
-          <div className="field">
-            <label htmlFor="audit-filter">Show</label>
-            <select id="audit-filter" value={action} onChange={(e) => setAction(e.target.value)}>
-              {FILTERS.map((f) => <option key={f.id} value={f.id}>{f.label}</option>)}
+        <div class="toolbar">
+          <div class="field">
+            <label for="audit-filter">Show</label>
+            <select id="audit-filter" value={action()} onChange={(e) => setAction(e.currentTarget.value)}>
+              <For each={FILTERS}>{(f) => <option value={f.id} selected={action() === f.id}>{f.label}</option>}</For>
             </select>
           </div>
         </div>
-        {q.isError ? <Notice tone="bad">{errorText(q.error)}</Notice> : null}
-        {q.isLoading ? <Spinner /> : null}
-        {q.data && rows.length === 0 ? <Empty title="Nothing to show yet" /> : null}
-        {rows.length ? (
-          <div className="table-wrap">
-            <table className="table">
+        <Show when={q.isError}><Notice tone="bad">{errorText(q.error)}</Notice></Show>
+        <Show when={q.isLoading}><Spinner /></Show>
+        <Show when={q.data && rows().length === 0}><Empty title="Nothing to show yet" /></Show>
+        <Show when={rows().length}>
+          <div class="table-wrap">
+            <table class="table">
               <thead><tr><th>When</th><th>Who</th><th>What</th><th>Address</th></tr></thead>
               <tbody>
-                {rows.map((r) => (
-                  <tr key={r.seq}>
-                    <td className="nowrap">{formatDateTime(r.at)}</td>
-                    <td>{r.actorLabel}</td>
-                    <td>{actionLabel(r.action)}{detailText(r.details) ? <div className="muted small">{detailText(r.details)}</div> : null}</td>
-                    <td className="mono small">{r.ip ?? ''}</td>
-                  </tr>
-                ))}
+                <For each={rows()}>
+                  {(r) => (
+                    <tr>
+                      <td class="nowrap">{formatDateTime(r.at)}</td>
+                      <td>{r.actorLabel}</td>
+                      <td>{actionLabel(r.action)}<Show when={detailText(r.details)}><div class="muted small">{detailText(r.details)}</div></Show></td>
+                      <td class="mono small">{r.ip ?? ''}</td>
+                    </tr>
+                  )}
+                </For>
               </tbody>
             </table>
           </div>
-        ) : null}
-        {q.hasNextPage ? <div><Button loading={q.isFetchingNextPage} onClick={() => q.fetchNextPage()}>Show older entries</Button></div> : null}
+        </Show>
+        <Show when={q.hasNextPage}><div><Button loading={q.isFetchingNextPage} onClick={() => q.fetchNextPage()}>Show older entries</Button></div></Show>
       </Card>
     </div>
   );

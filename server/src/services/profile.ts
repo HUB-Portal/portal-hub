@@ -2,6 +2,7 @@ import type { FastifyRequest } from 'fastify';
 import vm from 'node:vm';
 import { z } from 'zod';
 import { audit } from '../audit';
+import { config } from '../config';
 import { dbCtx, type AuthContext } from '../auth/context';
 import { many, one, tx, type PoolClient } from '../db';
 import { AppError, badRequest, conflict, notFound } from '../http/errors';
@@ -539,15 +540,15 @@ export async function onboardingChecklist(a: AuthContext) {
   return tx(dbCtx(a), async (c) => {
     const o = await one<any>(c, `SELECT o.*, ${DPA_SQL} AS dpa FROM organizations o WHERE o.id = $1`, [a.orgId]);
     if (!o) throw notFound();
-    const secured = !!(await one(c, `SELECT 1 AS x FROM users WHERE org_id = $1 AND 'admin' = ANY(roles) AND status = 'active' AND mfa_enabled`, [a.orgId]));
+    const secured = !config.mfaRequired || !!(await one(c, `SELECT 1 AS x FROM users WHERE org_id = $1 AND 'admin' = ANY(roles) AND status = 'active' AND mfa_enabled`, [a.orgId]));
     const spec = !!(await one(c, `SELECT 1 AS x FROM specs WHERE org_id = $1 AND status IN ('active', 'proposed')`, [a.orgId]));
     const approved = o.status === 'active';
     return {
       items: [
-        { id: 'account_secured', label: 'Secure your account with an authenticator app', done: secured },
-        { id: 'profile', label: 'Complete your company profile', done: profileComplete(o) },
+        ...(config.mfaRequired ? [{ id: 'account_secured', label: 'Secure your account with an authenticator app', done: secured }] : []),
+        // The company details card is gone from the profile page (8 Oct 2026), so there is no checklist step for it any more.
         { id: 'logo', label: 'Add your company logo', done: !!o.logo_file_id },
-        { id: 'case_address', label: 'Add your case address', done: isCompleteCaseAddress(o.settings?.case_address) },
+        { id: 'case_address', label: 'Add your shipping address', done: isCompleteCaseAddress(o.settings?.case_address) },
         { id: 'spec', label: 'Agree your production specification with K Line', done: spec },
         { id: 'dpa', label: 'Data processing agreement recorded by K Line', done: !!o.dpa },
         { id: 'approval', label: 'Approval by K Line', done: approved },

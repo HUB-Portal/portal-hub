@@ -149,7 +149,7 @@ describe('public configuration and seed', () => {
   it('answers the public config without signing in', async () => {
     const r = await new Client(app).call('GET', '/api/public/config');
     expect(r.status).toBe(200);
-    expect(r.json).toEqual({ privacyEmail: 'privacy@hub.test', supportEmail: 'support@hub.test', signupEnabled: true, privacyVersion: PRIVACY_VERSION, googleSignIn: false });
+    expect(r.json).toEqual({ privacyEmail: 'privacy@hub.test', supportEmail: 'support@hub.test', signupEnabled: true, privacyVersion: PRIVACY_VERSION, googleSignIn: false, mfaRequired: true });
   });
 
   it('seeds Contoso Smile confirmed and waiting, and Fabrikam Dental Lab unconfirmed with a live link', async () => {
@@ -1136,21 +1136,12 @@ describe('getting started checklist and locked features', () => {
     await enrol(r.c);
     const first = await r.c.call('GET', '/api/org/onboarding');
     expect(first.status).toBe(200);
-    expect(first.json.items.map((i: any) => i.id)).toEqual(['account_secured', 'profile', 'logo', 'case_address', 'spec', 'dpa', 'approval']);
+    expect(first.json.items.map((i: any) => i.id)).toEqual(['account_secured', 'logo', 'case_address', 'spec', 'dpa', 'approval']);
     expect(first.json.items.every((i: any) => typeof i.label === 'string' && i.label.length > 5 && !/ [-–—] /.test(i.label))).toBe(true);
-    expect(Object.fromEntries(first.json.items.map((i: any) => [i.id, i.done]))).toEqual({ account_secured: true, profile: false, logo: false, case_address: true, spec: false, dpa: false, approval: false });
+    expect(Object.fromEntries(first.json.items.map((i: any) => [i.id, i.done]))).toEqual({ account_secured: true, logo: false, case_address: true, spec: false, dpa: false, approval: false });
     expect(first.json.approved).toBe(false);
 
-    // the profile counts as done with legal name, VAT id (Germany is in the EU), address and one contact
-    await r.c.call('PUT', '/api/org/profile', { legalName: 'Zyxwv Quartz Dental GmbH', address: { street: '1 Hauptstrasse', city: 'Bonn', postalCode: '53111', country: 'DE' } });
-    expect((await r.c.call('GET', '/api/org/onboarding')).json.items.find((i: any) => i.id === 'profile').done).toBe(false);
-    await r.c.call('PUT', '/api/org/profile', { vatId: 'DE123456789' });
-    expect((await r.c.call('GET', '/api/org/onboarding')).json.items.find((i: any) => i.id === 'profile').done).toBe(false);
-    await r.c.call('PUT', '/api/org/profile', { contacts: { quality: { email: 'quality@zyxwv-dental.test' } } });
-    expect((await r.c.call('GET', '/api/org/onboarding')).json.items.find((i: any) => i.id === 'profile').done).toBe(true);
-    // a non EU company does not need a VAT id
-    await r.c.call('PUT', '/api/org/profile', { country: 'CH', vatId: '' });
-    expect((await r.c.call('GET', '/api/org/onboarding')).json.items.find((i: any) => i.id === 'profile').done).toBe(true);
+    // there is no checklist step for the company details any more (the card is gone from the profile page)
 
     // the spec step waits for a proposed or active version (the registration draft does not count)
     const specs = await r.c.call('GET', '/api/specs');

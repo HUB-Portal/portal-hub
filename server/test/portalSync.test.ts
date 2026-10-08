@@ -241,7 +241,7 @@ describe('portal status sync', () => {
     expect(failed.portal_push.status).toBe('pushed');
     expect(JSON.stringify(failed.portal_push)).not.toMatch(/Zelda|Quimby/);
     const shown = (await up.call('GET', `/api/cases/${failed.id}`)).json.case.portal;
-    expect(shown.syncError).toContain('problem on its side');
+    expect(shown.syncError).toBeUndefined(); // the partner is not told, K Line reads it from the record
     // The next run recovers and clears the error.
     await runPortalSync();
     const again = await row(failed.id);
@@ -293,7 +293,7 @@ describe('refresh from the portal', () => {
     expect(r.status, JSON.stringify(r.json)).toBe(200);
     expect(r.json.case).toMatchObject({ id: x.id, status: 'in_production', simpleStatus: 'production' });
     expect(r.json.case.portal).toMatchObject({ status: 'pushed', portalStatus: 'InProduction' });
-    expect(JSON.stringify(r.json)).not.toMatch(/Zelda|Quimby/);
+    expect(JSON.stringify(r.json.case.portal)).not.toMatch(/Zelda|Quimby/);
   });
 
   it('is limited to the partner’s own organisation, but K Line staff may refresh any case', async () => {
@@ -327,7 +327,8 @@ describe('refresh from the portal', () => {
     fakes[acmeId]!.failNext('getCase', 'network', 1);
     const r = await up.call('POST', `/api/cases/${x.id}/portal/refresh`, {});
     expect(r.status).toBe(200);
-    expect(r.json.case.portal.syncError).toBe('The K Line portal could not be reached.');
+    expect(r.json.case.portal.syncError).toBeUndefined(); // not shown to the partner
+    expect((await q('SELECT portal_push FROM cases WHERE id = $1', [x.id]))[0].portal_push.syncError).toBe('The K Line portal could not be reached.');
     expect(r.json.case.status).toBe('submitted');
   });
 });

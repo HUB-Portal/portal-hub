@@ -1,9 +1,11 @@
 import '@fontsource-variable/inter';
 import './styles/app.css';
-import { lazy, Suspense } from 'react';
-import { createRoot } from 'react-dom/client';
-import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom';
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { type Component, type JSX, lazy, Show, Suspense } from 'solid-js';
+import { render } from 'solid-js/web';
+import { Navigate, Route, Router } from '@solidjs/router';
+import { QueryClient, QueryClientProvider } from '@tanstack/solid-query';
+import type { Permission } from '@shared/roles';
+import type { MenuKey } from '@shared/menu';
 import { AuthProvider, Guard, homeFor, useAuth } from './lib/auth';
 import { Shell } from './layout/Shell';
 import { StepUpHost } from './ui/StepUp';
@@ -57,94 +59,113 @@ const client = new QueryClient({
   defaultOptions: { queries: { refetchOnWindowFocus: false, retry: 1, staleTime: 15_000 } },
 });
 
+interface GuardOptions { stage?: 'password' | 'mfa_setup' | 'full' | 'anon'; kind?: 'partner' | 'kline'; perm?: Permission; anyOf?: Permission[]; menu?: MenuKey }
+
+/** A route component wrapped in the sign in guard. */
+const guarded = (Page: Component, opts: GuardOptions): Component => () => (
+  <Guard {...opts}><Page /></Guard>
+);
+
 /** The portal home is Direct manufacturing. People who cannot send cases land on their cases, or on the getting started steps. */
 function PortalHome() {
   const { can } = useAuth();
-  if (can('case.write')) return <SendBulk />;
-  return <Navigate to={can('case.read') ? '/portal/cases' : '/portal/getting-started'} replace />;
+  return (
+    <Show when={can('case.write')} fallback={<Navigate href={can('case.read') ? '/portal/cases' : '/portal/getting-started'} />}>
+      <SendBulk />
+    </Show>
+  );
 }
 
 function Root() {
   const { me, loading } = useAuth();
-  if (loading) return <Spinner />;
-  return <Navigate to={homeFor(me)} replace />;
+  return <Show when={!loading()} fallback={<Spinner />}><Navigate href={homeFor(me())} /></Show>;
 }
 
-function App() {
+const anon = (Page: Component) => guarded(Page, { stage: 'anon' });
+const partner = (Page: Component, opts: Omit<GuardOptions, 'kind'> = {}) => guarded(Page, { kind: 'partner', ...opts });
+const kline = (Page: Component, opts: Omit<GuardOptions, 'kind'> = {}) => guarded(Page, { kind: 'kline', ...opts });
+const to = (href: string): Component => () => <Navigate href={href} />;
+
+/** The shell wraps the routes below it: the nested route is its children. */
+const PartnerShell = (props: { children?: JSX.Element }) => <Guard kind="partner"><Shell>{props.children}</Shell></Guard>;
+const KlineShell = (props: { children?: JSX.Element }) => <Guard kind="kline"><Shell>{props.children}</Shell></Guard>;
+
+function AppRoot(props: { children?: JSX.Element }) {
   return (
-    <Suspense fallback={<Spinner />}>
-      <Routes>
-        <Route path="/" element={<Root />} />
-        <Route path="/login" element={<Guard stage="anon"><Login /></Guard>} />
-        <Route path="/mfa" element={<Guard stage="password"><Mfa /></Guard>} />
-        <Route path="/mfa-setup" element={<Guard stage="mfa_setup"><MfaSetup /></Guard>} />
-        <Route path="/forgot-password" element={<Guard stage="anon"><ForgotPassword /></Guard>} />
-        <Route path="/reset-password" element={<Guard stage="anon"><ResetPassword /></Guard>} />
-        <Route path="/invite/:token" element={<Guard stage="anon"><Invite /></Guard>} />
-        <Route path="/register" element={<Guard stage="anon"><Register /></Guard>} />
-        <Route path="/verify" element={<Guard stage="anon"><Verify /></Guard>} />
-        <Route path="/privacy" element={<Privacy />} />
-        <Route path="/getting-started" element={<GettingStartedPublic />} />
-
-        <Route path="/portal" element={<Guard kind="partner"><Shell /></Guard>}>
-          <Route index element={<PortalHome />} />
-          <Route path="getting-started" element={<GettingStartedPage />} />
-          <Route path="send" element={<Navigate to="/portal" replace />} />
-          <Route path="send/bulk" element={<Navigate to="/portal" replace />} />
-          <Route path="send/bulk/batch/:id" element={<Guard kind="partner" perm="case.read"><BatchResult /></Guard>} />
-          <Route path="cases" element={<Guard kind="partner" perm="case.read"><Cases /></Guard>} />
-          <Route path="cases/:id" element={<Guard kind="partner" perm="case.read"><CaseDetail /></Guard>} />
-          <Route path="cases/:id/claim" element={<Guard kind="partner" perm="claim.write" menu="claims"><ClaimNew /></Guard>} />
-          <Route path="claims" element={<Guard kind="partner" perm="claim.read" menu="claims"><Claims /></Guard>} />
-          <Route path="claims/:id" element={<Guard kind="partner" perm="claim.read" menu="claims"><ClaimDetail /></Guard>} />
-          <Route path="spec" element={<Guard kind="partner" perm="spec.read" menu="spec"><Spec /></Guard>} />
-          <Route path="spec/:id" element={<Guard kind="partner" perm="spec.read" menu="spec"><Spec /></Guard>} />
-          <Route path="materials" element={<Guard kind="partner" perm="material.read" menu="materials"><Materials /></Guard>} />
-          <Route path="company" element={<Guard kind="partner" perm="org.read"><Company /></Guard>} />
-          <Route path="team" element={<Guard kind="partner" perm="team.manage"><Team /></Guard>} />
-          <Route path="account" element={<Account />} />
-          <Route path="access-log" element={<Guard kind="partner" perm="audit.read"><AccessLog /></Guard>} />
-          <Route path="integrations" element={<Guard kind="partner" anyOf={['integration.manage', 'export.run']}><Integrations /></Guard>} />
-          <Route path="settings/portal-api" element={<Guard kind="partner" perm="integration.manage"><PortalSettings /></Guard>} />
-          <Route path="settings/bags" element={<Guard kind="partner" perm="org.edit"><BagLayoutPage /></Guard>} />
-          <Route path="*" element={<Navigate to="/portal" replace />} />
-        </Route>
-
-        <Route path="/console" element={<Guard kind="kline"><Shell /></Guard>}>
-          <Route index element={<Guard kind="kline" perm="case.read"><Console /></Guard>} />
-          <Route path="intake" element={<Guard kind="kline" perm="intake.manage"><Intake /></Guard>} />
-          <Route path="cases" element={<Guard kind="kline" perm="case.read"><ConsoleCases /></Guard>} />
-          <Route path="cases/:id" element={<Guard kind="kline" perm="case.read"><CaseView /></Guard>} />
-          <Route path="claims" element={<Guard kind="kline" perm="claim.read"><ConsoleClaims /></Guard>} />
-          <Route path="claims/:id" element={<Guard kind="kline" perm="claim.read"><ClaimView /></Guard>} />
-          <Route path="specs" element={<Guard kind="kline" perm="spec.read"><Specs /></Guard>} />
-          <Route path="specs/:orgId" element={<Guard kind="kline" perm="spec.read"><PartnerSpec /></Guard>} />
-          <Route path="specs/:orgId/:id" element={<Guard kind="kline" perm="spec.read"><PartnerSpec /></Guard>} />
-          <Route path="materials" element={<Guard kind="kline" perm="material.read"><ConsoleMaterials /></Guard>} />
-          <Route path="partners" element={<Guard kind="kline" perm="admin.partners"><Partners /></Guard>} />
-          <Route path="partners/:id" element={<Guard kind="kline" perm="admin.partners"><PartnerDetail /></Guard>} />
-          <Route path="mes" element={<Guard kind="kline" perm="admin.mes"><Mes /></Guard>} />
-          <Route path="service-keys" element={<Guard kind="kline" perm="admin.mes"><ServiceKeys /></Guard>} />
-          <Route path="staff" element={<Guard kind="kline" perm="admin.staff"><Staff /></Guard>} />
-          <Route path="sites" element={<Guard kind="kline" perm="admin.sites"><Sites /></Guard>} />
-          <Route path="audit" element={<Guard kind="kline" perm="audit.read"><Audit /></Guard>} />
-          <Route path="account" element={<Account />} />
-          <Route path="*" element={<Navigate to="/console" replace />} />
-        </Route>
-
-        <Route path="*" element={<Root />} />
-      </Routes>
-    </Suspense>
+    <>
+      <Suspense fallback={<Spinner />}>{props.children}</Suspense>
+      <StepUpHost />
+    </>
   );
 }
 
-createRoot(document.getElementById('root')!).render(
-  <QueryClientProvider client={client}>
-    <BrowserRouter>
+render(
+  () => (
+    <QueryClientProvider client={client}>
       <AuthProvider>
-        <App />
-        <StepUpHost />
+        <Router root={AppRoot}>
+          <Route path="/" component={Root} />
+          <Route path="/login" component={anon(Login)} />
+          <Route path="/mfa" component={guarded(Mfa, { stage: 'password' })} />
+          <Route path="/mfa-setup" component={guarded(MfaSetup, { stage: 'mfa_setup' })} />
+          <Route path="/forgot-password" component={anon(ForgotPassword)} />
+          <Route path="/reset-password" component={anon(ResetPassword)} />
+          <Route path="/invite/:token" component={anon(Invite)} />
+          <Route path="/register" component={anon(Register)} />
+          <Route path="/verify" component={anon(Verify)} />
+          <Route path="/privacy" component={Privacy} />
+          <Route path="/getting-started" component={GettingStartedPublic} />
+
+          <Route path="/portal" component={PartnerShell}>
+            <Route path="/" component={PortalHome} />
+            <Route path="/getting-started" component={GettingStartedPage} />
+            <Route path="/send" component={to('/portal')} />
+            <Route path="/send/bulk" component={to('/portal')} />
+            <Route path="/send/bulk/batch/:id" component={partner(BatchResult, { perm: 'case.read' })} />
+            <Route path="/cases" component={partner(Cases, { perm: 'case.read' })} />
+            <Route path="/cases/:id" component={partner(CaseDetail, { perm: 'case.read' })} />
+            <Route path="/cases/:id/claim" component={partner(ClaimNew, { perm: 'claim.write', menu: 'claims' })} />
+            <Route path="/claims" component={partner(Claims, { perm: 'claim.read', menu: 'claims' })} />
+            <Route path="/claims/:id" component={partner(ClaimDetail, { perm: 'claim.read', menu: 'claims' })} />
+            <Route path="/spec" component={partner(Spec, { perm: 'spec.read', menu: 'spec' })} />
+            <Route path="/spec/:id" component={partner(Spec, { perm: 'spec.read', menu: 'spec' })} />
+            <Route path="/materials" component={partner(Materials, { perm: 'material.read', menu: 'materials' })} />
+            <Route path="/company" component={partner(Company, { perm: 'org.read' })} />
+            <Route path="/team" component={partner(Team, { perm: 'team.manage' })} />
+            <Route path="/account" component={Account} />
+            <Route path="/access-log" component={partner(AccessLog, { perm: 'audit.read' })} />
+            <Route path="/integrations" component={partner(Integrations, { anyOf: ['integration.manage', 'export.run'] })} />
+            <Route path="/settings/portal-api" component={partner(PortalSettings, { perm: 'integration.manage' })} />
+            <Route path="/settings/bags" component={partner(BagLayoutPage, { perm: 'org.edit' })} />
+            <Route path="*" component={to('/portal')} />
+          </Route>
+
+          <Route path="/console" component={KlineShell}>
+            <Route path="/" component={kline(Console, { perm: 'case.read' })} />
+            <Route path="/intake" component={kline(Intake, { perm: 'intake.manage' })} />
+            <Route path="/cases" component={kline(ConsoleCases, { perm: 'case.read' })} />
+            <Route path="/cases/:id" component={kline(CaseView, { perm: 'case.read' })} />
+            <Route path="/claims" component={kline(ConsoleClaims, { perm: 'claim.read' })} />
+            <Route path="/claims/:id" component={kline(ClaimView, { perm: 'claim.read' })} />
+            <Route path="/specs" component={kline(Specs, { perm: 'spec.read' })} />
+            <Route path="/specs/:orgId" component={kline(PartnerSpec, { perm: 'spec.read' })} />
+            <Route path="/specs/:orgId/:id" component={kline(PartnerSpec, { perm: 'spec.read' })} />
+            <Route path="/materials" component={kline(ConsoleMaterials, { perm: 'material.read' })} />
+            <Route path="/partners" component={kline(Partners, { perm: 'admin.partners' })} />
+            <Route path="/partners/:id" component={kline(PartnerDetail, { perm: 'admin.partners' })} />
+            <Route path="/mes" component={kline(Mes, { perm: 'admin.mes' })} />
+            <Route path="/service-keys" component={kline(ServiceKeys, { perm: 'admin.mes' })} />
+            <Route path="/staff" component={kline(Staff, { perm: 'admin.staff' })} />
+            <Route path="/sites" component={kline(Sites, { perm: 'admin.sites' })} />
+            <Route path="/audit" component={kline(Audit, { perm: 'audit.read' })} />
+            <Route path="/account" component={Account} />
+            <Route path="*" component={to('/console')} />
+          </Route>
+
+          <Route path="*" component={Root} />
+        </Router>
       </AuthProvider>
-    </BrowserRouter>
-  </QueryClientProvider>,
+    </QueryClientProvider>
+  ),
+  document.getElementById('root')!,
 );

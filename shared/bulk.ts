@@ -1,4 +1,4 @@
-// Direct manufacturing bulk intake: read the mandatory patient data from case folder names.
+// Direct manufacturing bulk intake: read the optional patient data from case folder names.
 // Folder name pattern: "<first name> <last name>", for example "Marc Alonso". A leading number (an old patient ID) is ignored.
 // Product type does not appear in the zip and is ignored.
 
@@ -82,9 +82,8 @@ export interface BulkCase {
 }
 
 export function validateBulkCase(c: Pick<BulkCase, 'firstName' | 'lastName' | 'files'>): string[] {
+  // The patient ID and the names are optional (review of 8 Oct 2026). The case reference identifies a case without them.
   const out: string[] = [];
-  if (!c.firstName.trim()) out.push('Patient first name is missing.');
-  if (!c.lastName.trim()) out.push('Patient last name is missing.');
   if (c.firstName.length > NAME_MAX) out.push(`First name is longer than ${NAME_MAX} characters.`);
   if (c.lastName.length > NAME_MAX) out.push(`Last name is longer than ${NAME_MAX} characters.`);
   if (c.files.length === 0) out.push('This folder has no files.');
@@ -108,7 +107,7 @@ function fromGroup(g: CaseGroup): BulkCase {
   return c;
 }
 
-/** Group a dropped zip or folder into direct manufacturing cases with the mandatory patient data. */
+/** Group a dropped zip or folder into direct manufacturing cases with the optional patient data. */
 export function buildBulkCases(files: InputFile[]): BulkCase[] {
   return groupCases(files).map(fromGroup);
 }

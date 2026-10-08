@@ -8,6 +8,7 @@ await app.listen({ host: config.host, port: config.port });
 
 const worker = config.runWorker ? startWorker({ log: (m) => app.log.error(m) }) : null;
 if (worker) app.log.info('worker running inside the API process');
+if (!config.mfaRequired) app.log.warn('MFA_REQUIRED is off: a password (or Google) alone signs people in, and nobody is asked for an authenticator code. Set MFA_REQUIRED=true to bring two factor sign in back.');
 
 let closing = false;
 async function shutdown(): Promise<void> {

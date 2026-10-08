@@ -5,7 +5,7 @@ import { many, one, tx, type DbCtx, type PoolClient } from '../db';
 import { AppError, badRequest, forbidden, notFound } from '../http/errors';
 import { keyCanSeePatients } from '../http/patientFields';
 import { simpleStatus, stageLabel } from '../../../shared/stages';
-import { CASE_SELECT, actorOf, createCase, eventSourceLabel, patientOf, portalBlock, submitCase } from './cases';
+import { CASE_SELECT, actorOf, createCase, eventSourceLabel, partnerPortalBlock, patientOf, submitCase } from './cases';
 import { FILE_COLUMNS, createUpload } from './files';
 import { listMaterials } from './materials';
 import { canonicalNames } from './packaging';
@@ -73,7 +73,7 @@ const issue = (i: any) => ({
 
 export function v1Case(row: any, opts: { patient?: boolean } = {}) {
   const direct = row.manufacturing_mode === 'direct';
-  const portal = portalBlock(row);
+  const portal = partnerPortalBlock(row); // an API key never gets the text of an integration error
   const out: Record<string, unknown> = {
     ref: row.ref,
     case_id: row.partner_case_id ?? null,

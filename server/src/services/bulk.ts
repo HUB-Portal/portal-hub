@@ -6,7 +6,7 @@ import { enqueue } from '../jobs';
 import { NAME_MAX } from '../../../shared/bulk';
 import { CASE_ID_ALPHABET, CASE_ID_MAX, caseIdRuleProblem } from '../../../shared/filenames';
 import { assertCaseAddress } from './org';
-import { CASE_SELECT, INSTRUCTIONS_MAX, actorOf, caseDto, insertCase, refreshBatch } from './cases';
+import { CASE_SELECT, INSTRUCTIONS_MAX, actorOf, caseDto, insertCase, partnerView, refreshBatch } from './cases';
 
 export interface BulkEntryInput {
   key: string;
@@ -28,7 +28,7 @@ export interface BulkEntryResult {
 
 const clean = (s: string) => s.normalize('NFC').replace(/[\u0000-\u001f\u007f]/g, '').replace(/\s+/g, ' ').trim();
 
-/** Mandatory data rules for one direct manufacturing case. Returns the cleaned values or an error. */
+/** Data rules for one direct manufacturing case. The patient ID and both names are optional. Returns the cleaned values or an error. */
 export function validateBulkEntry(e: BulkEntryInput): { ok: true; patientId: string | null; first: string; last: string } | { ok: false; error: string; message: string } {
   const patientId = clean(e.patientId ?? '');
   const first = clean(e.firstName ?? '');
@@ -41,8 +41,6 @@ export function validateBulkEntry(e: BulkEntryInput): { ok: true; patientId: str
       return { ok: false, error: 'invalid_patient_id', message: 'Patient ID cannot have two dots in a row, and cannot start or end with a dot or a slash.' };
     }
   }
-  if (!first) return { ok: false, error: 'first_name_required', message: 'Patient first name is missing.' };
-  if (!last) return { ok: false, error: 'last_name_required', message: 'Patient last name is missing.' };
   if (first.length > NAME_MAX || last.length > NAME_MAX) return { ok: false, error: 'name_too_long', message: `Names can be at most ${NAME_MAX} characters.` };
   if (e.instructions && e.instructions.length > INSTRUCTIONS_MAX) return { ok: false, error: 'instructions_too_long', message: `Instructions can be at most ${INSTRUCTIONS_MAX.toLocaleString('en-GB')} characters.` };
   return { ok: true, patientId: patientId || null, first, last };
@@ -108,14 +106,14 @@ export async function createBatch(
   });
 }
 
-export async function getBatch(ctx: DbCtx, id: string) {
+export async function getBatch(ctx: DbCtx, a: AuthContext, id: string) {
   return tx(ctx, async (c) => {
     const b = await one<any>(c, 'SELECT id, org_id, status, case_count, submit_when_clean, priority, created_at FROM bulk_batches WHERE id = $1', [id]);
     if (!b) throw notFound('That batch could not be found.');
     const rows = await many<any>(c, `${CASE_SELECT} WHERE c.bulk_batch_id = $1 ORDER BY c.created_at, c.id`, [id]);
     return {
       batch: { id: b.id, status: b.status, caseCount: b.case_count, submitWhenClean: b.submit_when_clean, priority: b.priority, createdAt: b.created_at instanceof Date ? b.created_at.toISOString() : b.created_at },
-      cases: rows.map(caseDto),
+      cases: rows.map((r) => caseDto(r, partnerView(a))),
     };
   });
 }

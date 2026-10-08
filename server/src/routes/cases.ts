@@ -2,7 +2,7 @@ import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { dbCtx, getAuth, guard } from '../auth/context';
 import { parse } from '../http/util';
-import { LIST_STATUS_VALUES, cancelCase, createCase, deleteCase, getCaseDetail, listCases, patchCase, preparePackage, revealName, submitCase } from '../services/cases';
+import { LIST_STATUS_VALUES, caseCounts, cancelCase, createCase, deleteCase, getCaseDetail, listCases, patchCase, preparePackage, revealName, submitCase } from '../services/cases';
 import { zipStream } from '../services/packaging';
 import { orderReplacement } from '../services/childCases';
 import { eraseCase } from '../services/erasure';
@@ -29,6 +29,12 @@ export async function caseRoutes(app: FastifyInstance): Promise<void> {
       req.query,
     );
     return listCases(dbCtx(a), a, q);
+  });
+
+  // Numbers for the filter chips and the menu badge. Registered before /api/cases/:id so "counts" is not read as an id.
+  app.get('/api/cases/counts', reader, async (req) => {
+    const a = getAuth(req);
+    return caseCounts(dbCtx(a), a);
   });
 
   app.post('/api/cases', writer, async (req, reply) => {

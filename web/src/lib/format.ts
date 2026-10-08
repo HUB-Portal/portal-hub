@@ -77,7 +77,7 @@ export function stepLabel(step: number | null, template = false): string {
 }
 
 const EVENT_LABEL: Record<string, string> = {
-  created: 'Case created', submitted: 'Case submitted', resubmitted: 'Case submitted again', files_checked: 'Files checked',
+  created: 'Case created', submitted: 'Case submitted', resubmitted: 'Case submitted again', files_checked: 'Files checked', documents_added: 'Documents added',
   stage: 'Stage changed', stage_reported: 'Stage reported', on_hold: 'Put on hold', released: 'Released from hold',
   cancelled: 'Case cancelled', routed: 'Approved and sent to a site', rerouted: 'Sent to another site', claim_opened: 'Claim opened',
   replacement_ordered: 'Replacement ordered', rework_ordered: 'Rework ordered', instructions_updated: 'Instructions updated',
@@ -110,6 +110,41 @@ export function portalLabel(s: string, demo = false): string {
 export function portalTone(s: string, demo = false): Tone {
   if (demo && s === 'pushed') return 'warn';
   return s === 'pushed' ? 'good' : s === 'failed' ? 'bad' : s === 'pending' || s === 'pushing' ? 'info' : 'neutral';
+}
+
+/**
+ * One plain status for a case, with what the partner should do next (review of 8 Oct 2026, A2). It replaces the three competing labels a row
+ * used to carry (Submitted, Clean, Sending failed). A failed hand over to the K Line portal is K Line's problem and reads as a delay, with no
+ * action for the partner, unless the case address is missing.
+ */
+export function caseStatus(c: { status: string; manufacturingMode?: string; stageLabel?: string | null; checks: { errors: unknown[]; warnings: unknown[] }; portal: { status: string; actionNeeded?: string; demo?: boolean } }): { text: string; tone: Tone; next: string | null } {
+  const direct = c.manufacturingMode === 'direct';
+  switch (c.status) {
+    case 'draft':
+      return { text: 'Draft, ready to send', tone: 'info', next: 'Send to K Line' };
+    case 'on_hold':
+      return { text: 'On hold', tone: 'warn', next: 'Fix what K Line asked for, then send again' };
+    case 'cancelled':
+      return { text: 'Cancelled', tone: 'neutral', next: null };
+    case 'submitted':
+    case 'ready':
+      if (direct && c.portal.status === 'failed') {
+        return c.portal.actionNeeded === 'case_address'
+          ? { text: 'Waiting for your shipping address', tone: 'warn', next: 'Add the shipping address' }
+          : { text: 'Problem on our side', tone: 'info', next: 'We are fixing it, no action needed' };
+      }
+      if (direct && c.portal.status === 'pushed') return { text: 'Received, K Line is processing', tone: 'good', next: null };
+      return { text: direct ? 'Received, sending to K Line' : 'Submitted', tone: 'info', next: null };
+    case 'received':
+    case 'in_production':
+      return { text: c.stageLabel ? `In production, ${c.stageLabel.toLowerCase()}` : 'In production', tone: 'info', next: null };
+    case 'shipped':
+      return { text: 'Shipped', tone: 'good', next: null };
+    case 'delivered':
+      return { text: 'Delivered', tone: 'good', next: null };
+    default:
+      return { text: humanise(c.status), tone: 'neutral', next: null };
+  }
 }
 
 export function greeting(name: string, now = new Date()): string {

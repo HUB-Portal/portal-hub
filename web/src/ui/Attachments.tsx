@@ -1,5 +1,6 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Download, Eye, FileText, Film, Image as ImageIcon, Paperclip, X } from 'lucide-react';
+import { createMemo, createSignal, For, onCleanup, Show } from 'solid-js';
+import { Dynamic } from 'solid-js/web';
+import { Download, Eye, FileText, Film, Image as ImageIcon, Paperclip, X } from 'lucide-solid';
 import { useAuth } from '../lib/auth';
 import { formatBytes, formatNumber } from '../lib/format';
 import { extOf, mediaKind, type MediaKind } from '../lib/quality';
@@ -18,18 +19,20 @@ interface PendingOptions {
   maxBytes: (ext: string) => number;
 }
 
-/** Files chosen but not yet uploaded, with local previews for photos. Nothing leaves the browser until the caller uploads. */
-export function usePending(opts: PendingOptions) {
-  const [pending, setPending] = useState<Pending[]>([]);
-  const [problems, setProblems] = useState<string[]>([]);
-  const urls = useRef<Set<string>>(new Set());
-  const optsRef = useRef(opts);
-  optsRef.current = opts;
+/**
+ * Files chosen but not yet uploaded, with local previews for photos. Nothing leaves the browser until the caller uploads.
+ * `opts` may be an object or a function returning one (read when files are added, so it can follow signals).
+ * The result has the getters `pending` and `problems`: read them inside JSX or an effect, and do not destructure the result.
+ */
+export function usePending(opts: PendingOptions | (() => PendingOptions)) {
+  const [pending, setPending] = createSignal<Pending[]>([]);
+  const [problems, setProblems] = createSignal<string[]>([]);
+  const urls = new Set<string>();
 
-  useEffect(() => () => { urls.current.forEach((u) => URL.revokeObjectURL(u)); urls.current.clear(); }, []);
+  onCleanup(() => { urls.forEach((u) => URL.revokeObjectURL(u)); urls.clear(); });
 
-  const add = useCallback((files: FileList | File[]) => {
-    const o = optsRef.current;
+  const add = (files: FileList | File[]) => {
+    const o = typeof opts === 'function' ? opts() : opts;
     const msgs: string[] = [];
     setPending((prev) => {
       const next = [...prev];
@@ -43,30 +46,34 @@ export function usePending(opts: PendingOptions) {
         if (next.some((p) => p.key === key)) continue;
         const kind = mediaKind(ext);
         let previewUrl: string | null = null;
-        if (kind === 'image') { previewUrl = URL.createObjectURL(file); urls.current.add(previewUrl); }
+        if (kind === 'image') { previewUrl = URL.createObjectURL(file); urls.add(previewUrl); }
         next.push({ key, file, kind, previewUrl });
       }
       return next;
     });
     setProblems([...new Set(msgs)]);
-  }, []);
+  };
 
-  const remove = useCallback((key: string) => {
+  const remove = (key: string) => {
     setPending((prev) => {
       const gone = prev.find((p) => p.key === key);
-      if (gone?.previewUrl) { URL.revokeObjectURL(gone.previewUrl); urls.current.delete(gone.previewUrl); }
+      if (gone?.previewUrl) { URL.revokeObjectURL(gone.previewUrl); urls.delete(gone.previewUrl); }
       return prev.filter((p) => p.key !== key);
     });
-  }, []);
+  };
 
-  const clear = useCallback(() => {
-    urls.current.forEach((u) => URL.revokeObjectURL(u));
-    urls.current.clear();
+  const clear = () => {
+    urls.forEach((u) => URL.revokeObjectURL(u));
+    urls.clear();
     setPending([]);
     setProblems([]);
-  }, []);
+  };
 
-  return { pending, problems, add, remove, clear };
+  return {
+    get pending() { return pending(); },
+    get problems() { return problems(); },
+    add, remove, clear,
+  };
 }
 
 /** Upload chosen files to a claim or shipment. Resolves when every file has finished or failed. */
@@ -76,14 +83,14 @@ export async function uploadPending(target: UploadTarget, pending: Pending[], on
   return res.ok;
 }
 
-function KindIcon({ kind }: { kind: MediaKind }) {
-  const Icon = kind === 'video' ? Film : kind === 'image' ? ImageIcon : FileText;
-  return <Icon size={22} aria-hidden="true" />;
+function KindIcon(props: { kind: MediaKind }) {
+  const Icon = () => (props.kind === 'video' ? Film : props.kind === 'image' ? ImageIcon : FileText);
+  return <Dynamic component={Icon()} size={22} aria-hidden="true" />;
 }
 
 const PHASE_TEXT: Record<string, string> = { queued: 'Waiting', uploading: 'Uploading', processing: 'Checking', ready: 'Done', rejected: 'Not accepted', error: 'Failed' };
 
-export function AttachmentPicker({ pending, problems, status, onAdd, onRemove, busy, accept, label, hint }: {
+export function AttachmentPicker(props: {
   pending: Pending[];
   problems: string[];
   status: Record<string, FileStatus>;
@@ -94,108 +101,123 @@ export function AttachmentPicker({ pending, problems, status, onAdd, onRemove, b
   label: string;
   hint: string;
 }) {
-  const input = useRef<HTMLInputElement>(null);
-  const [over, setOver] = useState(false);
-  const total = pending.length;
-  const overall = useMemo(() => {
-    if (!total) return 0;
+  let input!: HTMLInputElement;
+  const [over, setOver] = createSignal(false);
+  const total = () => props.pending.length;
+  const overall = createMemo(() => {
+    if (!total()) return 0;
     let sum = 0;
-    for (const p of pending) {
-      const s = status[p.key];
+    for (const p of props.pending) {
+      const s = props.status[p.key];
       if (!s) continue;
       sum += s.phase === 'ready' || s.phase === 'processing' || s.phase === 'rejected' ? 1 : s.total ? s.sent / s.total : 0;
     }
-    return sum / total;
-  }, [pending, status, total]);
+    return sum / total();
+  });
 
   return (
-    <div className="stack-sm">
+    <div class="stack-sm">
       <div
-        className={`dropzone dropzone-compact${over ? ' over' : ''}`}
+        class={`dropzone dropzone-compact${over() ? ' over' : ''}`}
         onDragOver={(e) => { e.preventDefault(); setOver(true); }}
         onDragLeave={() => setOver(false)}
-        onDrop={(e) => { e.preventDefault(); setOver(false); if (!busy && e.dataTransfer.files.length) onAdd(e.dataTransfer.files); }}
+        onDrop={(e) => { e.preventDefault(); setOver(false); if (!props.busy && e.dataTransfer && e.dataTransfer.files.length) props.onAdd(e.dataTransfer.files); }}
       >
         <Paperclip size={26} aria-hidden="true" />
-        <p><strong>{label}</strong></p>
-        <p className="muted small">{hint}</p>
-        <input ref={input} type="file" hidden multiple accept={accept} aria-label={label} onChange={(e) => { if (e.target.files?.length) onAdd(e.target.files); e.target.value = ''; }} />
-        <Button disabled={busy} onClick={() => input.current?.click()}>Choose files</Button>
+        <p><strong>{props.label}</strong></p>
+        <p class="muted small">{props.hint}</p>
+        <input ref={input} type="file" hidden multiple accept={props.accept} aria-label={props.label} onChange={(e) => { if (e.currentTarget.files?.length) props.onAdd(e.currentTarget.files); e.currentTarget.value = ''; }} />
+        <Button disabled={props.busy} onClick={() => input.click()}>Choose files</Button>
       </div>
-      {problems.map((p) => <p key={p} className="field-error">{p}</p>)}
-      {pending.length ? (
-        <>
-          <ul className="attach-list">
-            {pending.map((p) => {
-              const s = status[p.key];
+      <For each={props.problems}>{(p) => <p class="field-error">{p}</p>}</For>
+      <Show when={props.pending.length}>
+        <ul class="attach-list">
+          <For each={props.pending}>
+            {(p) => {
+              const s = () => props.status[p.key];
               return (
-                <li key={p.key} className="attach-item">
-                  <span className="attach-thumb">
+                <li class="attach-item">
+                  <span class="attach-thumb">
                     {p.previewUrl ? <img src={p.previewUrl} alt="" /> : <KindIcon kind={p.kind} />}
                   </span>
-                  <span className="attach-meta">
-                    <span className="attach-name">{p.file.name}</span>
-                    <span className="muted small">{formatBytes(p.file.size)}</span>
-                    {s ? (
-                      <>
-                        <ProgressBar label={`Progress for ${p.file.name}`} value={s.phase === 'ready' || s.phase === 'processing' ? 1 : s.total ? s.sent / s.total : 0} />
-                        <span className={`small${s.phase === 'error' || s.phase === 'rejected' ? ' field-error' : ' muted'}`}>{s.error ?? PHASE_TEXT[s.phase] ?? ''}</span>
-                      </>
-                    ) : null}
+                  <span class="attach-meta">
+                    <span class="attach-name">{p.file.name}</span>
+                    <span class="muted small">{formatBytes(p.file.size)}</span>
+                    <Show when={s()}>
+                      {(st) => (
+                        <>
+                          <ProgressBar label={`Progress for ${p.file.name}`} value={st().phase === 'ready' || st().phase === 'processing' ? 1 : st().total ? st().sent / st().total : 0} />
+                          <span class={`small${st().phase === 'error' || st().phase === 'rejected' ? ' field-error' : ' muted'}`}>{st().error ?? PHASE_TEXT[st().phase] ?? ''}</span>
+                        </>
+                      )}
+                    </Show>
                   </span>
-                  {!busy && !s ? <button type="button" className="icon-btn" aria-label={`Remove ${p.file.name}`} onClick={() => onRemove(p.key)}><X size={18} aria-hidden="true" /></button> : null}
+                  <Show when={!props.busy && !s()}>
+                    <button type="button" class="icon-btn" aria-label={`Remove ${p.file.name}`} onClick={() => props.onRemove(p.key)}><X size={18} aria-hidden="true" /></button>
+                  </Show>
                 </li>
               );
-            })}
-          </ul>
-          {busy ? <div aria-live="polite"><ProgressBar label="Upload progress" value={overall} /><p className="small muted">Uploading {formatNumber(total)} {total === 1 ? 'file' : 'files'}. Keep this page open.</p></div> : null}
-        </>
-      ) : null}
+            }}
+          </For>
+        </ul>
+        <Show when={props.busy}>
+          <div aria-live="polite"><ProgressBar label="Upload progress" value={overall()} /><p class="small muted">Uploading {formatNumber(total())} {total() === 1 ? 'file' : 'files'}. Keep this page open.</p></div>
+        </Show>
+      </Show>
     </div>
   );
 }
 
 /** Evidence files of a claim. Files are named by type, never by their own file name, and only loaded when opened. */
-export function EvidenceGallery({ files }: { files: CaseFile[] }) {
+export function EvidenceGallery(props: { files: CaseFile[] }) {
   const { can } = useAuth();
-  const [open, setOpen] = useState<{ file: CaseFile; label: string; kind: MediaKind } | null>(null);
-  const counts: Record<string, number> = {};
-  const rows = files.map((f) => {
-    const kind = mediaKind(f.ext || extOf(f.name ?? ''));
-    counts[kind] = (counts[kind] ?? 0) + 1;
-    const noun = kind === 'image' ? 'Photo' : kind === 'video' ? 'Video' : kind === 'pdf' ? 'Document' : 'File';
-    return { f, kind, label: `${noun} ${counts[kind]}` };
+  const [open, setOpen] = createSignal<{ file: CaseFile; label: string; kind: MediaKind } | null>(null);
+  const rows = createMemo(() => {
+    const counts: Record<string, number> = {};
+    return props.files.map((f) => {
+      const kind = mediaKind(f.ext || extOf(f.name ?? ''));
+      counts[kind] = (counts[kind] ?? 0) + 1;
+      const noun = kind === 'image' ? 'Photo' : kind === 'video' ? 'Video' : kind === 'pdf' ? 'Document' : 'File';
+      return { f, kind, label: `${noun} ${counts[kind]}` };
+    });
   });
-  if (!rows.length) return <p className="muted">No photos or videos yet.</p>;
   return (
-    <>
-      <ul className="attach-list">
-        {rows.map(({ f, kind, label }) => (
-          <li key={f.id} className="attach-item">
-            <span className="attach-thumb"><KindIcon kind={kind} /></span>
-            <span className="attach-meta">
-              <span className="attach-name">{label}</span>
-              <span className="muted small">{formatBytes(f.size)}</span>
-            </span>
-            <span className="row" style={{ gap: 6, flexWrap: 'nowrap' }}>
-              {f.state !== 'ready' ? <Badge tone={f.state === 'rejected' ? 'bad' : 'info'}>{f.state === 'rejected' ? 'Rejected' : 'Checking'}</Badge> : null}
-              {f.state === 'ready' && (kind === 'image' || kind === 'video') ? (
-                <Button size="sm" onClick={() => setOpen({ file: f, label, kind })} aria-label={`View ${label}`}><Eye size={14} aria-hidden="true" /> View</Button>
-              ) : null}
-              {f.state === 'ready' && can('file.download') ? <a className="btn btn-sm" href={`/api/files/${f.id}/download`} aria-label={`Download ${label}`}><Download size={14} aria-hidden="true" /></a> : null}
-            </span>
-          </li>
-        ))}
+    <Show when={rows().length} fallback={<p class="muted">No photos or videos yet.</p>}>
+      <ul class="attach-list">
+        <For each={rows()}>
+          {(r) => (
+            <li class="attach-item">
+              <span class="attach-thumb"><KindIcon kind={r.kind} /></span>
+              <span class="attach-meta">
+                <span class="attach-name">{r.label}</span>
+                <span class="muted small">{formatBytes(r.f.size)}</span>
+              </span>
+              <span class="row" style={{ gap: '6px', 'flex-wrap': 'nowrap' }}>
+                <Show when={r.f.state !== 'ready'}><Badge tone={r.f.state === 'rejected' ? 'bad' : 'info'}>{r.f.state === 'rejected' ? 'Rejected' : 'Checking'}</Badge></Show>
+                <Show when={r.f.state === 'ready' && (r.kind === 'image' || r.kind === 'video')}>
+                  <Button size="sm" onClick={() => setOpen({ file: r.f, label: r.label, kind: r.kind })} aria-label={`View ${r.label}`}><Eye size={14} aria-hidden="true" /> View</Button>
+                </Show>
+                <Show when={r.f.state === 'ready' && can('file.download')}><a class="btn btn-sm" href={`/api/files/${r.f.id}/download`} aria-label={`Download ${r.label}`}><Download size={14} aria-hidden="true" /></a></Show>
+              </span>
+            </li>
+          )}
+        </For>
       </ul>
-      <Dialog open={!!open} title={open?.label ?? 'Evidence'} onClose={() => setOpen(null)} wide footer={<Button onClick={() => setOpen(null)}>Close</Button>}>
-        {open?.kind === 'image' ? <img className="evidence-media" src={`/api/files/${open.file.id}/content`} alt={`${open.label}, shown large`} /> : null}
-        {open?.kind === 'video' ? (
-          <video className="evidence-media" controls preload="metadata" src={`/api/files/${open.file.id}/content`} aria-label={open.label}>
-            Your browser cannot play this video. Download it instead.
-          </video>
-        ) : null}
-        <p className="small muted">Opening evidence is recorded in the access log.</p>
+      <Dialog open={!!open()} title={open()?.label ?? 'Evidence'} onClose={() => setOpen(null)} wide footer={<Button onClick={() => setOpen(null)}>Close</Button>}>
+        <Show when={open()}>
+          {(o) => (
+            <>
+              <Show when={o().kind === 'image'}><img class="evidence-media" src={`/api/files/${o().file.id}/content`} alt={`${o().label}, shown large`} /></Show>
+              <Show when={o().kind === 'video'}>
+                <video class="evidence-media" controls preload="metadata" src={`/api/files/${o().file.id}/content`} aria-label={o().label}>
+                  Your browser cannot play this video. Download it instead.
+                </video>
+              </Show>
+            </>
+          )}
+        </Show>
+        <p class="small muted">Opening evidence is recorded in the access log.</p>
       </Dialog>
-    </>
+    </Show>
   );
 }

@@ -19,6 +19,14 @@ export const MAX_CASE_FILE_BYTES = 512 * 1024 * 1024;
 export const MAX_FILES_PER_CASE = 600;
 export const CASE_FILE_EXTENSIONS = ['stl', 'pts', 'pdf', 'csv', 'svg', 'txt', 'xml', 'json', 'jpg', 'jpeg', 'png'] as const;
 export const OPEN_CASE_STATES = ['draft', 'on_hold'];
+/**
+ * A case that was sent to K Line still takes documents (not models or trim lines) until it enters production. Late files must not change the
+ * aligners that are being made, so models and trim lines stay limited to drafts and cases on hold (review of 8 Oct 2026, R6).
+ */
+export const LATE_DOCUMENT_STATES = ['submitted', 'ready'];
+const MODEL_KINDS = ['stl', 'pts'];
+export const takesFile = (status: string, kind?: string | null): boolean =>
+  OPEN_CASE_STATES.includes(status) || (LATE_DOCUMENT_STATES.includes(status) && !!kind && !MODEL_KINDS.includes(kind));
 
 const KIND_BY_EXT: Record<string, string> = {
   stl: 'stl', pts: 'pts', pdf: 'pdf', csv: 'csv', svg: 'svg', jpg: 'image', jpeg: 'image', png: 'image', txt: 'other', xml: 'other', json: 'other',
@@ -179,11 +187,16 @@ export function assertUploadPermission(a: AuthContext, purpose: string): void {
   if (purpose !== 'case' && (a.kind !== 'user' || a.orgKind !== 'partner')) throw forbidden('Only people in the partner organisation can add these files.');
 }
 
-async function lockOpenCase(c: PoolClient, caseId: string): Promise<{ id: string; org_id: string; status: string }> {
+async function lockOpenCase(c: PoolClient, caseId: string, kind?: string | null): Promise<{ id: string; org_id: string; status: string }> {
   const cs = await one<any>(c, 'SELECT id, org_id, status, purged_at FROM cases WHERE id = $1 FOR UPDATE', [caseId]);
   if (!cs) throw notFound('That case could not be found.');
   if (cs.purged_at) throw conflict('The data of this case was removed, so files cannot be added.', 'case_erased');
-  if (!OPEN_CASE_STATES.includes(cs.status)) throw conflict('Files can only be added while a case is a draft or on hold.', 'case_not_open');
+  if (!takesFile(cs.status, kind)) {
+    throw conflict(
+      LATE_DOCUMENT_STATES.includes(cs.status) ? 'This case was already sent, so only documents can be added. Models and trim lines cannot change any more.' : 'Documents can only be added until production starts. Contact K Line.',
+      'case_not_open',
+    );
+  }
   return cs;
 }
 
@@ -209,11 +222,11 @@ async function lockProfileOwner(c: PoolClient, orgId: string): Promise<{ org_id:
 }
 
 /** Locks the owner (case, claim or shipment) of a file and checks that it still accepts files. */
-async function lockOwnerOpen(c: PoolClient, f: { case_id: string | null; claim_id: string | null; shipment_id: string | null; org_id?: string; purpose?: string }): Promise<{ org_id: string }> {
+async function lockOwnerOpen(c: PoolClient, f: { case_id: string | null; claim_id: string | null; shipment_id: string | null; org_id?: string; purpose?: string; kind?: string | null }): Promise<{ org_id: string }> {
   if (f.purpose && PROFILE_PURPOSES.includes(f.purpose)) return lockProfileOwner(c, f.org_id!);
   if (f.claim_id) return lockOpenClaim(c, f.claim_id);
   if (f.shipment_id) return lockOpenShipment(c, f.shipment_id);
-  return lockOpenCase(c, f.case_id!);
+  return lockOpenCase(c, f.case_id!, f.kind);
 }
 
 async function receivedChunks(c: PoolClient, fileId: string): Promise<number[]> {
@@ -282,7 +295,7 @@ export async function createUpload(ctx: DbCtx, a: AuthContext, input: CreateUplo
         ? await lockOpenClaim(c, ownerId)
         : purpose === 'shipment'
           ? await lockOpenShipment(c, ownerId)
-          : await lockOpenCase(c, ownerId);
+          : await lockOpenCase(c, ownerId, kind);
     // Case files and shipment documents need an approved organisation. Claim evidence is open to any organisation that has a claim.
     // Profile files (logos, documents) are open while onboarding, with a small limit.
     const st = profile ? null : await orgUploadState(c, owner.org_id);
@@ -349,7 +362,7 @@ export async function putChunk(ctx: DbCtx, fileId: string, idx: number, body: Bu
   const file = await tx(ctx, async (c) =>
     one<any>(
       c,
-      `SELECT f.id, f.org_id, f.case_id, f.claim_id, f.shipment_id, f.purpose, f.size, f.chunk_count, f.wrapped_key, f.nonce_prefix, f.storage_prefix, f.state,
+      `SELECT f.id, f.org_id, f.case_id, f.claim_id, f.shipment_id, f.purpose, f.kind, f.size, f.chunk_count, f.wrapped_key, f.nonce_prefix, f.storage_prefix, f.state,
               cs.status AS case_status, cl.status AS claim_status, sh.status AS shipment_status
          FROM files f LEFT JOIN cases cs ON cs.id = f.case_id LEFT JOIN claims cl ON cl.id = f.claim_id LEFT JOIN material_shipments sh ON sh.id = f.shipment_id
         WHERE f.id = $1`,
@@ -365,7 +378,7 @@ export async function putChunk(ctx: DbCtx, fileId: string, idx: number, body: Bu
     if (!CLAIM_UPLOAD_STATES.includes(file.claim_status)) throw conflict('Files can no longer be added to this claim.', 'claim_not_open');
   } else if (file.shipment_id) {
     if (file.shipment_status !== 'in_transit') throw conflict('Documents can only be added while a shipment is on its way.', 'shipment_not_open');
-  } else if (!OPEN_CASE_STATES.includes(file.case_status)) throw conflict('Files can only be added while a case is a draft or on hold.', 'case_not_open');
+  } else if (!takesFile(file.case_status, file.kind)) throw conflict('Files can only be added while a case is a draft or on hold. A sent case takes documents until production starts.', 'case_not_open');
   if (!Number.isInteger(idx) || idx < 0 || idx >= file.chunk_count) throw badRequest('That chunk number is not valid for this file.', 'invalid_chunk');
   if (!Buffer.isBuffer(body) || body.length !== expectedChunkSize(Number(file.size), file.chunk_count, idx)) {
     throw new AppError(422, 'invalid_chunk_size', 'That chunk is not the expected size.');
@@ -399,7 +412,7 @@ export async function putChunk(ctx: DbCtx, fileId: string, idx: number, body: Bu
 
 export async function completeUpload(ctx: DbCtx, a: AuthContext, fileId: string, req?: { ip?: string; ua?: string | null }): Promise<{ state: string }> {
   return tx(ctx, async (c) => {
-    const pre = await one<any>(c, `SELECT id, org_id, case_id, claim_id, shipment_id, purpose, state FROM files WHERE id = $1`, [fileId]);
+    const pre = await one<any>(c, `SELECT id, org_id, case_id, claim_id, shipment_id, purpose, kind, state FROM files WHERE id = $1`, [fileId]);
     if (!pre) throw notFound('That upload could not be found.');
     assertUploadPermission(a, pre.purpose);
     if (pre.state === 'processing' || pre.state === 'ready') return { state: pre.state === 'ready' ? 'ready' : 'processing' };
@@ -418,6 +431,15 @@ export async function completeUpload(ctx: DbCtx, a: AuthContext, fileId: string,
     await c.query(`UPDATE files SET state = 'processing', uploaded_at = now(), updated_at = now(), uploader_id = COALESCE(uploader_id, $2), api_key_id = COALESCE(api_key_id, $3) WHERE id = $1`, [fileId, a.userId, a.apiKeyId]);
     await enqueue(c, 'file.process', { fileId }, { orgId: f.org_id });
     if (f.case_id) await recomputeCase(c, f.case_id);
+    if (f.case_id) {
+      const cs = await one<{ status: string }>(c, 'SELECT status FROM cases WHERE id = $1', [f.case_id]);
+      if (cs && LATE_DOCUMENT_STATES.includes(cs.status)) {
+        // Shows in the case timeline: documents were added after the case was sent.
+        await c.query(`INSERT INTO case_events (org_id, case_id, type, actor_type, actor_id, data) VALUES ($1, $2, 'documents_added', $3, $4, $5::jsonb)`, [
+          f.org_id, f.case_id, a.kind === 'user' ? 'user' : 'api_key', a.userId ?? a.apiKeyId, JSON.stringify({ fileId, kind: f.kind }),
+        ]);
+      }
+    }
     await audit(c, {
       actorType: a.kind === 'user' ? 'user' : 'api_key',
       actorId: a.userId ?? a.apiKeyId,
@@ -595,6 +617,13 @@ export async function processFileJob(job: Pick<JobRow, 'payload' | 'attempts' | 
         row.case_id,
         JSON.stringify({ fileId, state: outcome.state, errors: outcome.result.errors.length, warnings: outcome.result.warnings.length }),
       ]);
+    }
+    if (row.case_id && outcome.state === 'ready') {
+      // A document added after the case went to the K Line portal is sent on there as well (the push job only uploads what is not there yet).
+      const late = await one<{ status: string; manufacturing_mode: string; pushed: boolean }>(c, `SELECT status, manufacturing_mode, (portal_push->>'status' = 'pushed') AS pushed FROM cases WHERE id = $1`, [row.case_id]);
+      if (late && late.manufacturing_mode === 'direct' && late.pushed && LATE_DOCUMENT_STATES.includes(late.status) && !MODEL_KINDS.includes(row.kind)) {
+        await enqueue(c, 'bulk.push', { caseId: row.case_id }, { orgId: row.org_id, maxAttempts: 5 });
+      }
     }
     if (outcome.scan === 'infected') {
       await audit(c, { actorType: 'system', orgId: row.org_id, action: 'file.infected', targetType: 'file', targetId: fileId, details: { caseId: row.case_id, ...(row.claim_id ? { claimId: row.claim_id } : {}), ...(row.shipment_id ? { shipmentId: row.shipment_id } : {}) } });

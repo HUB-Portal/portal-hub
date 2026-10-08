@@ -1,7 +1,7 @@
-import { useEffect, useRef, useState } from 'react';
-import { Link } from 'react-router-dom';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Bell } from 'lucide-react';
+import { createEffect, createSignal, For, onCleanup, Show } from 'solid-js';
+import { A } from '@solidjs/router';
+import { createMutation, createQuery, useQueryClient } from '@tanstack/solid-query';
+import { Bell } from 'lucide-solid';
 import { api, errorText } from '../lib/api';
 import { useMenu } from '../lib/auth';
 import { formatDateTime, formatNumber } from '../lib/format';
@@ -37,77 +37,84 @@ function visibleLink(to: string | null, menu: { claims: boolean; spec: boolean; 
 interface NotifResponse { items: Notif[]; unread: number }
 
 /** Bell for both shells. Reads GET /api/notifications, marks with POST /api/notifications/read. */
-export function NotificationBell({ caseBase }: { caseBase: string }) {
+export function NotificationBell(props: { caseBase: string }) {
   const qc = useQueryClient();
   const menu = useMenu();
-  const [open, setOpen] = useState(false);
-  const ref = useRef<HTMLDivElement>(null);
-  const q = useQuery({
+  const [open, setOpen] = createSignal(false);
+  let ref!: HTMLDivElement;
+  const q = createQuery(() => ({
     queryKey: ['notifications'],
     queryFn: () => api<NotifResponse>('/api/notifications'),
     refetchInterval: 60_000,
     refetchOnWindowFocus: true,
     retry: false,
-  });
-  const list = q.data?.items ?? [];
-  const unread = q.data?.unread ?? 0;
+  }));
+  const list = () => q.data?.items ?? [];
+  const unread = () => q.data?.unread ?? 0;
 
-  const mark = useMutation({
+  const mark = createMutation(() => ({
     mutationFn: (body: { ids: string[] } | { all: true }) => api('/api/notifications/read', { method: 'POST', body }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['notifications'] }),
-  });
+  }));
 
-  useEffect(() => {
-    if (!open) return;
-    const onDown = (e: MouseEvent) => { if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false); };
+  createEffect(() => {
+    if (!open()) return;
+    const onDown = (e: MouseEvent) => { if (ref && !ref.contains(e.target as Node)) setOpen(false); };
     const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setOpen(false); };
     document.addEventListener('mousedown', onDown);
     document.addEventListener('keydown', onKey);
-    return () => { document.removeEventListener('mousedown', onDown); document.removeEventListener('keydown', onKey); };
-  }, [open]);
+    onCleanup(() => { document.removeEventListener('mousedown', onDown); document.removeEventListener('keydown', onKey); });
+  });
 
   return (
-    <div className="pop-wrap" ref={ref}>
-      <button type="button" className="icon-btn" aria-label={unread ? `Notifications, ${formatNumber(unread)} unread` : 'Notifications'} aria-expanded={open} aria-haspopup="true" onClick={() => setOpen((v) => !v)}>
+    <div class="pop-wrap" ref={ref}>
+      <button type="button" class="icon-btn" aria-label={unread() ? `Notifications, ${formatNumber(unread())} unread` : 'Notifications'} aria-expanded={open()} aria-haspopup="true" onClick={() => setOpen((v) => !v)}>
         <Bell size={20} aria-hidden="true" />
-        {unread > 0 ? <span className="bell-badge" aria-hidden="true">{unread > 99 ? '99+' : unread}</span> : null}
+        <Show when={unread() > 0}><span class="bell-badge" aria-hidden="true">{unread() > 99 ? '99+' : unread()}</span></Show>
       </button>
-      {open ? (
-        <div className="popover wide" role="region" aria-label="Notifications">
-          <div className="row" style={{ justifyContent: 'space-between' }}>
+      <Show when={open()}>
+        <div class="popover wide" role="region" aria-label="Notifications">
+          <div class="row" style={{ 'justify-content': 'space-between' }}>
             <h3>Notifications</h3>
-            {unread > 0 ? <button type="button" className="btn btn-sm btn-ghost" disabled={mark.isPending} onClick={() => mark.mutate({ all: true })}>Mark all as read</button> : null}
+            <Show when={unread() > 0}><button type="button" class="btn btn-sm btn-ghost" disabled={mark.isPending} onClick={() => mark.mutate({ all: true })}>Mark all as read</button></Show>
           </div>
-          {q.isError ? <p className="field-error" style={{ marginTop: 6 }}>{errorText(q.error)}</p> : null}
-          {!q.isError && list.length === 0 ? <p className="muted small" style={{ marginTop: 6 }}>You have no notifications yet. Updates about your cases will appear here.</p> : null}
-          {list.length ? (
-            <ul className="notif-list">
-              {list.map((n) => {
-                const to = visibleLink(linkFor(n, caseBase), menu);
-                const body = (
-                  <>
-                    <strong>{n.title}</strong>
-                    {n.body ? <div className="small">{n.body}</div> : null}
-                    <div className="muted small">{formatDateTime(n.createdAt)}</div>
-                  </>
-                );
-                return (
-                  <li key={n.id} className={n.read ? undefined : 'unread'}>
-                    {to ? (
-                      <Link to={to} style={{ color: 'inherit', textDecoration: 'none', display: 'block' }} onClick={() => { if (!n.read) mark.mutate({ ids: [n.id] }); setOpen(false); }}>{body}</Link>
-                    ) : (
-                      <div>
-                        {body}
-                        {!n.read ? <button type="button" className="btn btn-sm btn-ghost" onClick={() => mark.mutate({ ids: [n.id] })}>Mark as read</button> : null}
-                      </div>
-                    )}
-                  </li>
-                );
-              })}
+          <Show when={q.isError}><p class="field-error" style={{ 'margin-top': '6px' }}>{errorText(q.error)}</p></Show>
+          <Show when={!q.isError && list().length === 0}><p class="muted small" style={{ 'margin-top': '6px' }}>You have no notifications yet. Updates about your cases will appear here.</p></Show>
+          <Show when={list().length}>
+            <ul class="notif-list">
+              <For each={list()}>
+                {(n) => {
+                  const to = () => visibleLink(linkFor(n, props.caseBase), menu);
+                  const body = () => (
+                    <>
+                      <strong>{n.title}</strong>
+                      {n.body ? <div class="small">{n.body}</div> : null}
+                      <div class="muted small">{formatDateTime(n.createdAt)}</div>
+                    </>
+                  );
+                  return (
+                    <li class={n.read ? undefined : 'unread'}>
+                      <Show
+                        when={to()}
+                        fallback={
+                          <div>
+                            {body()}
+                            {!n.read ? <button type="button" class="btn btn-sm btn-ghost" onClick={() => mark.mutate({ ids: [n.id] })}>Mark as read</button> : null}
+                          </div>
+                        }
+                      >
+                        {(href) => (
+                          <A href={href()} style={{ color: 'inherit', 'text-decoration': 'none', display: 'block' }} onClick={() => { if (!n.read) mark.mutate({ ids: [n.id] }); setOpen(false); }}>{body()}</A>
+                        )}
+                      </Show>
+                    </li>
+                  );
+                }}
+              </For>
             </ul>
-          ) : null}
+          </Show>
         </div>
-      ) : null}
+      </Show>
     </div>
   );
 }

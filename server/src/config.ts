@@ -78,6 +78,12 @@ const schema = z.object({
    * is always asked. The variable is accepted only as true (or left out). Any other value stops the server from starting.
    */
   OIDC_REQUIRE_LOCAL_MFA: z.string().optional(),
+  /**
+   * Master switch for two factor sign in. TEMPORARILY OFF (decision of 8 Oct 2026): a password (or Google) alone gives a full session, the
+   * authenticator pages and the step up prompt are skipped, and nobody is asked to enrol. Existing authenticator secrets and recovery codes
+   * stay in the database untouched. Set MFA_REQUIRED=true to bring the second factor back for everyone; nothing needs to be migrated.
+   */
+  MFA_REQUIRED: bool(false),
   /** Discovery document. Only tests and proxies change this; it must be https in production. */
   OIDC_GOOGLE_DISCOVERY_URL: z.string().url().default('https://accounts.google.com/.well-known/openid-configuration'),
 });
@@ -107,6 +113,8 @@ export interface Config {
   sessionIdleMinutes: number;
   sessionMaxHours: number;
   stepUpMinutes: number;
+  /** False while two factor sign in is switched off (see MFA_REQUIRED). */
+  mfaRequired: boolean;
   scryptLogN: number;
   signupEnabled: boolean;
   signupDailyLimit: number;
@@ -246,6 +254,7 @@ export function parseConfig(source: Record<string, string | undefined>): Config 
     sessionIdleMinutes: e.SESSION_IDLE_MINUTES,
     sessionMaxHours: e.SESSION_MAX_HOURS,
     stepUpMinutes: e.STEP_UP_MINUTES,
+    mfaRequired: e.MFA_REQUIRED,
     scryptLogN: e.SCRYPT_LOG_N,
     signupEnabled: e.SIGNUP_ENABLED,
     signupDailyLimit: e.SIGNUP_DAILY_LIMIT,

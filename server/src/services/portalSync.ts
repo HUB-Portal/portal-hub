@@ -5,7 +5,7 @@ import { conflict } from '../http/errors';
 import { registerJob } from '../jobs';
 import { portalStatusLabel, portalStatusToHub } from '../../../shared/stages';
 import { CARRIER_MAX, TRACKING_MAX, cleanText, notifyPartner } from './stageEngine';
-import { caseDto, loadCase } from './cases';
+import { caseDto, loadCase, partnerView } from './cases';
 import { PortalError, getPortalClient, isDemoPortal, type PortalCaseInfo, type PortalClient } from './portal';
 import { emitCaseWebhook } from './webhooks';
 
@@ -199,7 +199,7 @@ export async function refreshCaseFromPortal(ctx: DbCtx, a: AuthContext, id: stri
   if (row.manufacturing_mode !== 'direct') throw conflict('Only direct manufacturing cases are sent to the K Line portal.', 'not_direct');
   if (row.portal_push?.status !== 'pushed' || !row.portal_case_uuid) throw conflict('This case has not been sent to the K Line portal yet.', 'not_pushed');
   await runPortalSync({ caseId: id });
-  return { case: caseDto(await tx(ctx, (c) => loadCase(c, id, false, a))) };
+  return { case: caseDto(await tx(ctx, (c) => loadCase(c, id, false, a)), partnerView(a)) };
 }
 
 /**

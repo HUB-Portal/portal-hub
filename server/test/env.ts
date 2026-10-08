@@ -23,6 +23,7 @@ Object.assign(process.env, {
   ACTIVE_KEY_ID: 'k1',
   BLIND_INDEX_KEY_ID: 'b1',
   SCRYPT_LOG_N: '10',
+  MFA_REQUIRED: process.env.MFA_REQUIRED ?? 'true',
   DEMO_MODE: 'true',
   PORTAL_FAKE: 'true',
   SCANNER: 'none',

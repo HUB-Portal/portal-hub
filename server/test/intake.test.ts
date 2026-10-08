@@ -114,7 +114,8 @@ describe('upload, checks and submit', () => {
     expect(caseA.patientMasked).toBe('M*** A*****');
     expect(caseA.hasPatientName).toBe(true);
     expect(caseA.status).toBe('draft');
-    expect(JSON.stringify(r.json)).not.toContain('Alonso');
+    // the company that uploaded the name sees it in full (usability review of 8 Oct 2026); it is encrypted at rest
+    expect(caseA.patientName).toBe('Marc Alonso');
     const row = (await q('SELECT patient_enc, notes_enc, patient_bidx FROM cases WHERE id = $1', [caseA.id]))[0];
     expect(row.patient_enc).toMatch(/^f1\./);
     expect(row.notes_enc).toMatch(/^f1\./);
@@ -200,10 +201,6 @@ describe('upload, checks and submit', () => {
     const dupe = await up.uploadFile(caseA.id, 'copy_of_model_U01.stl', cubeStl(60));
     let d = await up.call('GET', `/api/cases/${caseA.id}`);
     expect(d.json.case.checks.errors.map((e: any) => e.code)).toContain('duplicate_file');
-    const sub = await up.call('POST', `/api/cases/${caseA.id}/submit`, { acknowledgeWarnings: true });
-    expect(sub.status).toBe(409);
-    expect(sub.json.code).toBe('checks_failed');
-    expect(sub.json.errors.length).toBeGreaterThan(0);
     // the same model as a template for step 1 is its own slot
     const fixed = await up.call('PATCH', `/api/files/${dupe.fileId}`, { arch: 'upper', step: 1, template: true });
     expect(fixed.status).toBe(200);
@@ -281,12 +278,10 @@ describe('upload, checks and submit', () => {
     await up.call('DELETE', `/api/cases/${c.id}`);
   });
 
-  it('needs confirmation of warnings, stores it, routes to the default site and sets the due date', async () => {
-    const noAck = await up.call('POST', `/api/cases/${caseA.id}/submit`, {});
-    expect(noAck.status).toBe(409);
-    expect(noAck.json.code).toBe('warnings_need_confirmation');
-    expect(noAck.json.warnings.map((w: any) => w.code)).toContain('stl_units');
-    const ok = await up.call('POST', `/api/cases/${caseA.id}/submit`, { acknowledgeWarnings: true });
+  it('submits without any confirmation, keeps the warnings, routes to the default site and sets the due date', async () => {
+    // the checks do not stop a submission (decision of 8 Oct 2026): the warnings stay on the case and count as read
+    expect((await up.call('GET', `/api/cases/${caseA.id}`)).json.case.checks.warnings.map((w: any) => w.code)).toContain('stl_units');
+    const ok = await up.call('POST', `/api/cases/${caseA.id}/submit`, {});
     expect(ok.status, JSON.stringify(ok.json)).toBe(200);
     expect(ok.json.case).toMatchObject({ status: 'ready', siteCode: 'PT-CHV', warningsAcknowledged: true });
     expect(ok.json.case.dueDate).toMatch(/^\d{4}-\d{2}-\d{2}$/);
@@ -335,7 +330,9 @@ describe('instructions', () => {
 describe('patient names, downloads and the access log', () => {
   it('logs every name reveal and file download and shows K Line access to the partner', async () => {
     const list = await up.call('GET', '/api/cases');
-    expect(JSON.stringify(list.json)).not.toMatch(/Marc|Alonso/);
+    expect(list.json.items.find((c: any) => c.id === caseA.id).patientName).toBe('Marc Alonso');
+    // K Line staff never get the clear name in a list
+    expect(JSON.stringify((await intake.call('GET', '/api/console/cases')).json)).not.toMatch(/Marc|Alonso/);
 
     const reveal = await up.call('POST', `/api/cases/${caseA.id}/reveal-name`, {});
     expect(reveal.status).toBe(200);
