@@ -6,7 +6,7 @@ import path from 'node:path';
 import { Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import { audit } from '../audit';
-import { SYSTEM, many, one, tx } from '../db';
+import { SYSTEM, many, one, tx, type PoolClient } from '../db';
 import { decryptField, fieldAad } from '../crypto/keys';
 import { enqueue, registerJob, type JobRow } from '../jobs';
 import { notifyKline } from './notify';
@@ -70,6 +70,44 @@ const AUTO_RETRY_MINUTES = 30;
 const AUTO_RETRY_LIMIT = 96;
 
 /**
+ * Sends the documents added after a case reached the portal (the paperclip on a sent case). Nothing else about the case changes, so a failure here
+ * leaves it as it is: the job is tried again, and K Line sees the failed job.
+ */
+async function pushLateDocuments(caseId: string, row: any, files: any[], push: any): Promise<void> {
+  const client: PortalClient & { close?: () => Promise<void> } = getPortalClient({ id: row.org_id, settings: row.org_settings ?? {} });
+  try {
+    const sent: Record<string, boolean> = { ...(push.uploads?.docs ?? {}) };
+    for (const f of splitForPortal(files).docs) {
+      if (sent[f.id]) continue;
+      await client.uploadFile(row.portal_case_uuid, 'field_case_other_docs', fileName(f), Readable.from(fileContentStream(f)), Number(f.size));
+      sent[f.id] = true;
+      await recordProgress(caseId, { uploads: { ...(push.uploads ?? { bundle: false, submitted: true }), docs: sent } });
+    }
+  } finally {
+    await client.close?.().catch(() => undefined);
+  }
+}
+
+/**
+ * A push failed for a reason the partner cannot fix, so K Line is told (once, the first time) and the push is scheduled again.
+ * Runs inside the transaction that records the failure.
+ */
+async function escalateToKline(c: PoolClient, caseId: string, row: { org_id: string; ref: string }, push: { autoRetries?: number }): Promise<void> {
+  const tries = Number(push.autoRetries ?? 0);
+  if (tries === 0) {
+    await notifyKline(c, row.org_id, {
+      kind: 'portal_push_failed',
+      title: 'A direct manufacturing case could not be sent to the K Line portal',
+      body: `Case ${row.ref} is waiting. Check the portal connection of the partner. The Hub tries again by itself every ${AUTO_RETRY_MINUTES} minutes.`,
+      data: { caseId, ref: row.ref },
+    });
+  }
+  if (tries >= AUTO_RETRY_LIMIT) return;
+  await enqueue(c, 'bulk.push', { caseId }, { orgId: row.org_id, maxAttempts: 5, runAt: new Date(Date.now() + AUTO_RETRY_MINUTES * 60_000) });
+  await c.query(`UPDATE cases SET portal_push = portal_push || jsonb_build_object('autoRetries', $2::int) WHERE id = $1`, [caseId, tries + 1]);
+}
+
+/**
  * Pushes one direct manufacturing case to the K Line portal. Safe to run again at any point:
  * the portal case uuid is stored straight after it is created and every finished upload is recorded.
  * Nothing in job payloads, logs or error text holds patient data.
@@ -102,22 +140,7 @@ export async function bulkPushJob(job: Pick<JobRow, 'payload' | 'attempts' | 'ma
   });
   if (!loaded) return;
   const { row, files } = loaded;
-  if (loaded.late) {
-    // A failure here leaves the case as it is (it was sent already). The job is tried again, and K Line sees the failed job.
-    const client = getPortalClient({ id: row.org_id, settings: row.org_settings ?? {} });
-    try {
-      const sent: Record<string, boolean> = { ...(loaded.push.uploads?.docs ?? {}) };
-      for (const f of splitForPortal(files).docs) {
-        if (sent[f.id]) continue;
-        await client.uploadFile(row.portal_case_uuid, 'field_case_other_docs', fileName(f), Readable.from(fileContentStream(f)), Number(f.size));
-        sent[f.id] = true;
-        await recordProgress(caseId, { uploads: { ...(loaded.push.uploads ?? { bundle: false, submitted: true }), docs: sent } });
-      }
-    } finally {
-      await (client as PortalClient & { close?: () => Promise<void> }).close?.().catch(() => undefined);
-    }
-    return;
-  }
+  if (loaded.late) return pushLateDocuments(caseId, row, files, loaded.push);
   const progress: PushProgress = { docs: {}, bundle: false, submitted: false, ...(loaded.push.uploads ?? {}) };
   let client: (PortalClient & { close?: () => Promise<void> }) | undefined;
   let tmpFile: string | undefined;
@@ -221,21 +244,7 @@ export async function bulkPushJob(job: Pick<JobRow, 'payload' | 'attempts' | 'ma
         ]);
         await audit(c, { actorType: 'system', orgId: row.org_id, action: 'case.portal_push_failed', targetType: 'case', targetId: caseId, details: { ref: row.ref, code: pe?.code ?? refused?.code ?? 'internal' } });
         await refreshBatch(c, row.bulk_batch_id);
-        if (!refused) {
-          const tries = Number(loaded.push.autoRetries ?? 0);
-          if (tries === 0) {
-            await notifyKline(c, row.org_id, {
-              kind: 'portal_push_failed',
-              title: 'A direct manufacturing case could not be sent to the K Line portal',
-              body: `Case ${row.ref} is waiting. Check the portal connection of the partner. The Hub tries again by itself every ${AUTO_RETRY_MINUTES} minutes.`,
-              data: { caseId, ref: row.ref },
-            });
-          }
-          if (tries < AUTO_RETRY_LIMIT) {
-            await enqueue(c, 'bulk.push', { caseId }, { orgId: row.org_id, maxAttempts: 5, runAt: new Date(Date.now() + AUTO_RETRY_MINUTES * 60_000) });
-            await c.query(`UPDATE cases SET portal_push = portal_push || jsonb_build_object('autoRetries', $2::int) WHERE id = $1`, [caseId, tries + 1]);
-          }
-        }
+        if (!refused) await escalateToKline(c, caseId, row, loaded.push);
       });
       if (permanent) return; // no point retrying: the partner fixes the cause and retries by hand
       throw new Error(lastError);

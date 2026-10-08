@@ -1,8 +1,9 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useRef, useState } from 'react';
 import { RefreshCw } from 'lucide-react';
 import { parseFileName } from '@shared/filenames';
 import { formatBytes, formatNumber } from '../lib/format';
 import type { IntakeResult } from '../lib/intake';
+import { useLeaveWarning } from '../lib/useLeaveWarning';
 import { isUploadable, uploadCaseFiles, type FileStatus, type UploadSpec } from '../lib/upload';
 import { Badge, Button, ProgressBar } from './Common';
 
@@ -61,12 +62,7 @@ export function useCaseUploader(caseId: string, onDone: () => void) {
   }, [entries, run]);
 
   const busy = running > 0;
-  useEffect(() => {
-    if (!busy) return undefined;
-    const h = (e: BeforeUnloadEvent) => { e.preventDefault(); e.returnValue = ''; };
-    window.addEventListener('beforeunload', h);
-    return () => window.removeEventListener('beforeunload', h);
-  }, [busy]);
+  useLeaveWarning(busy);
 
   return { entries: Object.values(entries), notes, busy, add, retry, clear: () => setEntries({}) };
 }
