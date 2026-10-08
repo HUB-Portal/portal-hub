@@ -3,10 +3,12 @@ import { Link, useSearchParams } from 'react-router-dom';
 import { api, ApiError } from '../../lib/api';
 import { Button, Field, Notice } from '../../ui/Common';
 import { AuthLayout } from './AuthLayout';
+import { useMfaRequired } from '../../lib/orgApi';
 
 export const PASSWORD_HINT = 'Use at least 12 characters. Do not use your name or email address, or a common password.';
 
 export default function ResetPassword() {
+  const mfa = useMfaRequired();
   const [params] = useSearchParams();
   const token = params.get('token') ?? '';
   const [pw, setPw] = useState('');
@@ -39,7 +41,7 @@ export default function ResetPassword() {
     );
   }
   return (
-    <AuthLayout title="Choose a new password" intro="After this you will sign in again with your authenticator app.">
+    <AuthLayout title="Choose a new password" intro={mfa ? 'After this you will sign in again with your authenticator app.' : 'After this you will sign in again with your new password.'}>
       {done ? (
         <>
           <Notice tone="good">Your password has been changed.</Notice>

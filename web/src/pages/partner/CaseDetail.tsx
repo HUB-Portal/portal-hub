@@ -1,32 +1,46 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { ClipboardList, Download, Eraser, Eye, FilePlus2, Flag, FolderPlus, PackagePlus, Pause, Play, RefreshCw, Route as RouteIcon, Send, Trash2, Upload, XCircle } from 'lucide-react';
-import { parseFileName } from '@shared/filenames';
+import { ClipboardList, Download, Eraser, Eye, Flag, MoreHorizontal, PackagePlus, Pause, Play, RefreshCw, Route as RouteIcon, Send, Trash2, Upload, X, XCircle } from 'lucide-react';
 import { api, ApiError, errorText } from '../../lib/api';
 import { useAuth, useMenu } from '../../lib/auth';
-import { archLabel, eventLabel, formatBytes, formatDate, formatDateTime, formatNumber, humanise, portalLabel, portalTone, simpleStatusLabel, simpleStatusOf, simpleStatusTone, sourceLabel, stepLabel, statusLabel, statusTone } from '../../lib/format';
+import { archLabel, caseStatus, eventLabel, formatBytes, formatDate, formatDateTime, formatNumber, humanise, portalLabel, portalTone, simpleStatusLabel, simpleStatusOf, simpleStatusTone, sourceLabel, stepLabel, statusLabel, statusTone } from '../../lib/format';
 import { fallbackStepper, stageLabel } from '../../lib/stages';
 import { INSTRUCTIONS_MAX, readInstructionBytes } from '../../lib/instructions';
-import { readFileList } from '../../lib/intake';
-import { isUploadable, uploadCaseFiles, type FileStatus, type UploadSpec } from '../../lib/upload';
+import { readDrop, readFileList } from '../../lib/intake';
 import { CLAIMABLE_CASE_STATUSES, REPLACEABLE_CASE_STATUSES, alignerName, alignersOf, claimStatusLabel, claimStatusTone } from '../../lib/quality';
 import type { CaseChild, CaseClaimRef, CaseDetail as CaseDetailData, CaseEvent, CaseFile, CaseItem, Issue, Routing } from '../../lib/types';
-import { Badge, Button, Card, Dialog, Field, IssueList, Notice, PageHeader, ProgressBar, Spinner, Toggle } from '../../ui/Common';
+import { AddDocuments } from '../../ui/AddDocuments';
+import { Badge, Button, Card, Dialog, Field, IssueList, Notice, PageHeader, Spinner, Toggle } from '../../ui/Common';
+import { UploadList, useCaseUploader } from '../../ui/CaseUploader';
+import { DropZone, PageDropOverlay, usePageDrop } from '../../ui/DropZone';
 import { Stepper } from '../../ui/Stepper';
 import { StlViewer } from '../../viewer/StlViewer';
 import { HoldDialog, ReleaseDialog, RouteDialog, StageDialog } from '../console/caseActions';
 import { AlignerPicker } from './ClaimNew';
+import { useMfaRequired } from '../../lib/orgApi';
 
 const OPEN_STATUSES = ['draft', 'submitted', 'on_hold', 'ready'];
 
-function fileTone(s: string) { return s === 'ready' ? 'good' : s === 'rejected' ? 'bad' : 'info'; }
-function fileStateLabel(s: string) { return ({ uploading: 'Uploading', processing: 'Checking', ready: 'Ready', rejected: 'Rejected', purged: 'Removed' } as Record<string, string>)[s] ?? humanise(s); }
+function fileTone(s: string, idle = false) { return s === 'ready' ? 'good' : s === 'rejected' || (s === 'uploading' && idle) ? 'bad' : 'info'; }
+/** `idle` is true when no upload of this case is running in this browser. A file still in the Uploading state then was cut off (for example a closed tab). */
+function fileStateLabel(s: string, idle = false) {
+  if (s === 'uploading' && idle) return 'Upload not finished';
+  return ({ uploading: 'Uploading', processing: 'Checking', ready: 'Ready', rejected: 'Rejected', purged: 'Removed' } as Record<string, string>)[s] ?? humanise(s);
+}
 
 function issuesFor(f: CaseFile, c: CaseItem): { errors: Issue[]; warnings: Issue[] } {
   const errors = [...(f.validation?.errors ?? []), ...c.checks.errors.filter((i) => i.fileId === f.id)];
   const warnings = [...(f.validation?.warnings ?? []), ...c.checks.warnings.filter((i) => i.fileId === f.id)];
   return { errors, warnings };
+}
+
+/** In a draft the steps that are missing a file or have a failed one stand out, so the partner sees what to fix (review of 8 Oct 2026, R5). */
+function stepTone(r: ManifestRow, idle: boolean): string {
+  const bad = (f?: CaseFile) => !!f && (f.state === 'rejected' || (f.state === 'uploading' && idle) || (f.validation?.errors?.length ?? 0) > 0);
+  if (!r.model || bad(r.model) || bad(r.pts)) return 'row-bad';
+  if (!r.pts) return 'row-warn';
+  return '';
 }
 
 interface ManifestRow { key: string; arch: 'upper' | 'lower'; step: number; template: boolean; model?: CaseFile; pts?: CaseFile }
@@ -69,6 +83,7 @@ export default function CaseDetail({ staff = false }: { staff?: boolean }) {
     },
   });
   const [selected, setSelected] = useState<string | null>(null);
+  const [viewerOpen, setViewerOpen] = useState(false);
   const [notice, setNotice] = useState<{ tone: 'good' | 'bad' | 'warn'; text: string } | null>(null);
   const [dialog, setDialog] = useState<'submit' | 'cancel' | 'delete' | 'route' | 'hold' | 'release' | 'stage' | 'replace' | 'erase' | null>(null);
   const [mapFile, setMapFile] = useState<CaseFile | null>(null);
@@ -80,10 +95,15 @@ export default function CaseDetail({ staff = false }: { staff?: boolean }) {
   const { rows, unmapped } = useMemo(() => buildManifest(files), [files]);
   const others = files.filter((f) => f.kind !== 'stl' && f.kind !== 'pts');
   const sel = rows.find((r) => r.key === selected) ?? rows.find((r) => r.model?.state === 'ready') ?? rows[0];
+  const showViewer = viewerOpen && !!sel?.model && sel.model.state === 'ready';
   const filesEditable = !staff && !!c && (c.status === 'draft' || c.status === 'on_hold') && can('case.write');
 
-  const refresh = () => { for (const k of ['case', 'console-case', 'cases', 'console-cases', 'intake', 'console-overview']) qc.invalidateQueries({ queryKey: [k] }); };
+  const refresh = () => { for (const k of ['case', 'console-case', 'cases', 'console-cases', 'intake', 'console-overview', 'case-counts']) qc.invalidateQueries({ queryKey: [k] }); };
   const back = staff ? '/console/cases' : '/portal/cases';
+  // A draft takes new files at any time: the drop zone sits in the Aligners card and the whole page accepts drops (review of 8 Oct 2026, R5).
+  const uploader = useCaseUploader(id, refresh);
+  const dragging = usePageDrop((snap) => { void uploader.add(readDrop(snap)); }, filesEditable);
+  const idle = !uploader.busy;
 
   const cancel = useMutation({
     mutationFn: () => api(`/api/cases/${id}/cancel`, { method: 'POST', body: {} }),
@@ -143,16 +163,31 @@ export default function CaseDetail({ staff = false }: { staff?: boolean }) {
   const direct = c.manufacturingMode === 'direct';
   const erased = !!c.purgedAt;
   const canErase = can('case.erase') && c.status !== 'draft' && !erased;
+  const uploading = files.some((f) => f.state === 'uploading' || f.state === 'processing') || uploader.busy;
+  // Why Submit is switched off: an error blocks it, so say so instead of letting the partner press it and read the answer afterwards.
+  const submitBlock = c.checks.errors.length ? `Fix ${c.checks.errors.length === 1 ? 'the error' : `the ${c.checks.errors.length} errors`} first: ${c.checks.errors[0]!.message}` : uploading && files.some((f) => f.state === 'uploading' && idle) ? 'Some files were not finished uploading. Remove them or add them again.' : null;
 
   return (
     <div className="page">
+      <PageDropOverlay show={dragging} text="Drop to add files to this case" />
       <div><Link to={back} className="small">Back to cases</Link></div>
       <PageHeader
         title={<span className="row" style={{ gap: 12 }}>{c.ref} {staff ? <><Badge tone={statusTone(c.status)}>{statusLabel(c.status)}</Badge><Badge tone={simpleStatusTone(simpleStatusOf(c))} title="Shown to the partner">{simpleStatusLabel(simpleStatusOf(c))}</Badge></> : <Badge tone={simpleStatusTone(simpleStatusOf(c))}>{simpleStatusLabel(simpleStatusOf(c))}</Badge>}{direct ? <Badge tone="info">Direct manufacturing</Badge> : null}</span>}
         subtitle={c.caseId ? `Case ID ${c.caseId}` : undefined}
         actions={
           <>
-            {canWrite && (c.status === 'draft' || c.status === 'on_hold') ? <Button variant="primary" onClick={() => setDialog('submit')}><Send size={16} aria-hidden="true" /> {c.status === 'on_hold' ? 'Submit again' : 'Submit case'}</Button> : null}
+            {canWrite && (c.status === 'draft' || c.status === 'on_hold') ? (
+              <Button
+                variant="primary"
+                disabled={submitBlock !== null}
+                title={submitBlock ?? undefined}
+                aria-describedby={submitBlock ? 'submit-why' : undefined}
+                onClick={() => setDialog('submit')}
+              >
+                <Send size={16} aria-hidden="true" /> {c.status === 'on_hold' ? 'Submit again' : 'Submit case'}
+              </Button>
+            ) : null}
+            {canWrite && submitBlock ? <span id="submit-why" className="sr-only">{submitBlock}</span> : null}
             {canRoute && c.status === 'submitted' ? <Button variant="primary" onClick={() => setDialog('route')}><RouteIcon size={16} aria-hidden="true" /> Send to a site</Button> : null}
             {canRoute && c.status === 'ready' ? <Button onClick={() => setDialog('route')}><RouteIcon size={16} aria-hidden="true" /> Change site</Button> : null}
             {canRoute && c.status === 'on_hold' ? <Button variant="primary" onClick={() => setDialog('release')}><Play size={16} aria-hidden="true" /> Release</Button> : null}
@@ -162,13 +197,21 @@ export default function CaseDetail({ staff = false }: { staff?: boolean }) {
             {can('file.download') && files.some((f) => f.state === 'ready') ? <a className="btn" href={`/api/cases/${c.id}/package.zip`}><Download size={16} aria-hidden="true" /> Production package</a> : null}
             {!staff && showClaims && can('claim.write') && CLAIMABLE_CASE_STATUSES.includes(c.status) ? <Link className="btn" to={`/portal/cases/${c.id}/claim`}><Flag size={16} aria-hidden="true" /> Report an issue</Link> : null}
             {canWrite && REPLACEABLE_CASE_STATUSES.includes(c.status) ? <Button onClick={() => setDialog('replace')}><PackagePlus size={16} aria-hidden="true" /> Order replacement</Button> : null}
-            {canWrite && !c.purgedAt && OPEN_STATUSES.includes(c.status) ? <Button onClick={() => setDialog('cancel')}><XCircle size={16} aria-hidden="true" /> Cancel case</Button> : null}
-            {canWrite && c.status === 'draft' ? <Button variant="danger" onClick={() => setDialog('delete')}><Trash2 size={16} aria-hidden="true" /> Delete draft</Button> : null}
+            {canWrite && !c.purgedAt && c.status !== 'cancelled' ? <AddDocuments caseId={c.id} status={c.status} onDone={refresh} /> : null}
+            {canWrite && !c.purgedAt && OPEN_STATUSES.includes(c.status) && c.status !== 'draft' ? <Button onClick={() => setDialog('cancel')}><XCircle size={16} aria-hidden="true" /> Cancel case</Button> : null}
+            {canWrite && c.status === 'draft' ? (
+              // A draft has one way out, and it sits in a menu so it is not next to Submit by mistake.
+              <details className="more-menu">
+                <summary className="btn" aria-label="More actions"><MoreHorizontal size={16} aria-hidden="true" /> More</summary>
+                <div className="more-menu-list"><Button variant="danger" onClick={() => setDialog('delete')}><Trash2 size={16} aria-hidden="true" /> Delete draft</Button></div>
+              </details>
+            ) : null}
             {canErase ? <Button variant="danger" onClick={() => setDialog('erase')}><Eraser size={16} aria-hidden="true" /> Erase case data</Button> : null}
           </>
         }
       />
       {notice ? <Notice tone={notice.tone}>{notice.text}</Notice> : null}
+      {!staff && !erased && c.status !== 'cancelled' ? <PlainStatus c={c} /> : null}
       {erased ? <Notice tone="info" title="The data of this case was removed">The files, the patient name, the instructions and the text people typed were removed on {formatDate(c.purgedAt!)}. Only the production record is kept: the reference, status, dates, counts and history.</Notice> : null}
       {c.status === 'on_hold' ? (
         <Notice
@@ -197,18 +240,14 @@ export default function CaseDetail({ staff = false }: { staff?: boolean }) {
       ) : null}
       {!staff && c.status === 'draft' ? <Notice tone="info">This case is a draft. K Line will not start work until you submit it.</Notice> : null}
 
-      {direct ? (
+      {direct && staff ? (
         <Card title="Customer portal">
           <div className="row">
             <Badge tone={portalTone(c.portal.status, c.portal.demo)}>{portalLabel(c.portal.status, c.portal.demo)}</Badge>
             {c.portal.status === 'pushing' && c.portal.step ? <span className="muted small">Step {c.portal.step} of {c.portal.steps ?? 3}: {['', 'Creating the case', 'Sending the files, this can take a few minutes', 'Submitting the case'][c.portal.step] ?? 'Working'}</span> : null}
             {c.portal.attempts ? <span className="muted small">{formatNumber(c.portal.attempts)} {c.portal.attempts === 1 ? 'attempt' : 'attempts'}</span> : null}
-            {c.portal.status === 'failed' && canWrite && !c.purgedAt ? <Button size="sm" loading={retry.isPending} onClick={() => retry.mutate()}><RefreshCw size={14} aria-hidden="true" /> Try again</Button> : null}
           </div>
-          {c.portal.status === 'failed' && c.portal.lastError ? (
-            <Notice tone="bad" title="Last error" action={/case address/i.test(c.portal.lastError) && canWrite ? <Link className="btn btn-sm" to="/portal/account#case-address">Open case address</Link> : undefined}>{c.portal.lastError}</Notice>
-          ) : null}
-          {c.portal.demo && c.portal.status === 'pushed' ? <p className="small muted">This company has no K Line portal connection, so a demo copy was used. Add the address, key and user ID in the portal settings to send real cases.</p> : null}
+          {c.portal.status === 'failed' && c.portal.lastError ? <Notice tone="bad" title="Last error">{c.portal.lastError}</Notice> : null}
           {c.portal.status === 'pushed' && !c.portal.demo ? (
             <div className="row" style={{ marginTop: 8 }}>
               <span className="small">
@@ -235,15 +274,33 @@ export default function CaseDetail({ staff = false }: { staff?: boolean }) {
         <FactsCard c={c} staff={staff} routing={routing} />
       </div>
 
-      <Card title="Aligners" actions={filesEditable ? <AddFilesButtons caseId={c.id} onDone={refresh} /> : null}>
-        {rows.length === 0 && unmapped.length === 0 ? <p className="muted">No models yet.{filesEditable ? ' Add files to get started.' : ''}</p> : null}
+      <Card title="Aligners">
+        {filesEditable ? (
+          <div className="stack-sm">
+            <DropZone
+              title={rows.length || unmapped.length ? 'Drop more files here to add them to this case' : 'Drop the models and trim lines of this case here'}
+              compact
+              active={dragging}
+              onList={(l) => { void uploader.add(readFileList(l)); }}
+            >
+              Missing or failed steps are marked below. Files you drop are added to the case at once.
+            </DropZone>
+            <UploadList uploader={uploader} />
+          </div>
+        ) : null}
+        {rows.length === 0 && unmapped.length === 0 ? <p className="muted">No models yet.{filesEditable ? ' Drop files above to get started.' : ''}</p> : null}
         {rows.length ? (
           <>
-            <StlViewer
-              label={sel ? `3D view of ${archLabel(sel.arch)} ${stepLabel(sel.step, sel.template)}` : '3D view'}
-              modelUrl={sel?.model && sel.model.state === 'ready' ? `/api/files/${sel.model.id}/content` : null}
-              ptsUrl={sel?.pts && sel.pts.state === 'ready' ? `/api/files/${sel.pts.id}/content` : null}
-            />
+            {showViewer ? (
+              <div className="stack-sm">
+                <div className="row" style={{ justifyContent: 'flex-end' }}><Button size="sm" onClick={() => setViewerOpen(false)}><X size={14} aria-hidden="true" /> Close 3D view</Button></div>
+                <StlViewer
+                  label={sel ? `3D view of ${archLabel(sel.arch)} ${stepLabel(sel.step, sel.template)}` : '3D view'}
+                  modelUrl={sel?.model && sel.model.state === 'ready' ? `/api/files/${sel.model.id}/content` : null}
+                  ptsUrl={sel?.pts && sel.pts.state === 'ready' ? `/api/files/${sel.pts.id}/content` : null}
+                />
+              </div>
+            ) : null}
             {(['upper', 'lower'] as const).map((arch) => {
               const list = rows.filter((r) => r.arch === arch);
               if (!list.length) return null;
@@ -255,11 +312,11 @@ export default function CaseDetail({ staff = false }: { staff?: boolean }) {
                       <thead><tr><th>Step</th><th>Model</th><th>Trim line</th><th><span className="sr-only">Actions</span></th></tr></thead>
                       <tbody>
                         {list.map((r) => (
-                          <tr key={r.key} className={r.key === sel?.key ? 'selected' : undefined}>
+                          <tr key={r.key} className={[r.key === sel?.key && showViewer ? 'selected' : '', filesEditable ? stepTone(r, idle) : ''].filter(Boolean).join(' ') || undefined}>
                             <td className="nowrap"><strong>{stepLabel(r.step, r.template)}</strong></td>
-                            <td><FileCell f={r.model} c={c} missing="Missing" onEdit={filesEditable ? setMapFile : undefined} /></td>
-                            <td><FileCell f={r.pts} c={c} missing={r.model ? 'Missing' : 'None'} warnMissing={!!r.model} onEdit={filesEditable ? setMapFile : undefined} /></td>
-                            <td className="right"><Button size="sm" disabled={!r.model} onClick={() => setSelected(r.key)} aria-pressed={r.key === sel?.key} aria-label={`View ${archLabel(arch)} ${stepLabel(r.step, r.template)} in 3D`}><Eye size={14} aria-hidden="true" /> View</Button></td>
+                            <td><FileCell f={r.model} c={c} missing="Missing" idle={idle} onEdit={filesEditable ? setMapFile : undefined} onRemove={filesEditable ? (f) => removeFile.mutate(f.id) : undefined} /></td>
+                            <td><FileCell f={r.pts} c={c} missing={r.model ? 'Missing' : 'None'} warnMissing={!!r.model} idle={idle} onEdit={filesEditable ? setMapFile : undefined} onRemove={filesEditable ? (f) => removeFile.mutate(f.id) : undefined} /></td>
+                            <td className="right"><Button size="sm" disabled={!r.model} onClick={() => { setSelected(r.key); setViewerOpen(true); }} aria-pressed={showViewer && r.key === sel?.key} aria-label={`View ${archLabel(arch)} ${stepLabel(r.step, r.template)} in 3D`}><Eye size={14} aria-hidden="true" /> View</Button></td>
                           </tr>
                         ))}
                       </tbody>
@@ -279,7 +336,7 @@ export default function CaseDetail({ staff = false }: { staff?: boolean }) {
                 <tbody>
                   {unmapped.map((f) => (
                     <tr key={f.id}>
-                      <td><FileCell f={f} c={c} missing="" onEdit={filesEditable ? setMapFile : undefined} showName /></td>
+                      <td><FileCell f={f} c={c} missing="" idle={idle} onEdit={filesEditable ? setMapFile : undefined} onRemove={filesEditable ? (x) => removeFile.mutate(x.id) : undefined} showName /></td>
                     </tr>
                   ))}
                 </tbody>
@@ -300,7 +357,7 @@ export default function CaseDetail({ staff = false }: { staff?: boolean }) {
                   return (
                     <tr key={f.id}>
                       <td>{f.name}{iss.errors.length || iss.warnings.length ? <div><IssueList tone={iss.errors.length ? 'bad' : 'warn'} items={[...iss.errors, ...iss.warnings]} /></div> : null}</td>
-                      <td><Badge tone={fileTone(f.state)}>{fileStateLabel(f.state)}</Badge></td>
+                      <td><Badge tone={fileTone(f.state, idle)}>{fileStateLabel(f.state, idle)}</Badge></td>
                       <td className="num nowrap">{formatBytes(f.size)}</td>
                       <td className="right">
                         <div className="row" style={{ justifyContent: 'flex-end', gap: 6 }}>
@@ -376,7 +433,7 @@ function eventWho(e: CaseEvent): string {
   return '';
 }
 
-function FileCell({ f, c, missing, warnMissing, onEdit, showName }: { f?: CaseFile; c: CaseItem; missing: string; warnMissing?: boolean; onEdit?: (f: CaseFile) => void; showName?: boolean }) {
+function FileCell({ f, c, missing, warnMissing, onEdit, onRemove, idle, showName }: { f?: CaseFile; c: CaseItem; missing: string; warnMissing?: boolean; onEdit?: (f: CaseFile) => void; onRemove?: (f: CaseFile) => void; idle?: boolean; showName?: boolean }) {
   const { can } = useAuth();
   if (!f) return missing ? <Badge tone={warnMissing ? 'warn' : 'neutral'}>{missing}</Badge> : null;
   const iss = issuesFor(f, c);
@@ -384,8 +441,9 @@ function FileCell({ f, c, missing, warnMissing, onEdit, showName }: { f?: CaseFi
     <div className="stack-sm">
       <div className="row" style={{ gap: 6 }}>
         {showName ? <span>{f.name}</span> : null}
-        <Badge tone={fileTone(f.state)}>{fileStateLabel(f.state)}</Badge>
+        <Badge tone={fileTone(f.state, idle)}>{fileStateLabel(f.state, idle)}</Badge>
         <span className="muted small">{formatBytes(f.size)}</span>
+        {f.state === 'uploading' && idle && onRemove ? <button type="button" className="btn btn-sm" onClick={() => onRemove(f)} aria-label={`Remove ${f.name} and add it again`}>Remove</button> : null}
         {can('file.download') && f.state === 'ready' ? <a className="small" href={`/api/files/${f.id}/download`} aria-label={`Download ${f.name}`}>Download</a> : null}
         {onEdit ? <button type="button" className="btn btn-sm btn-ghost" onClick={() => onEdit(f)} aria-label={`Change the arch and step of ${f.name}`}>Edit</button> : null}
       </div>
@@ -415,16 +473,19 @@ function FactsCard({ c, staff, routing }: { c: CaseItem; staff: boolean; routing
       <dl className="facts">
         <dt>Reference</dt><dd>{c.ref}</dd>
         {staff ? <><dt>Partner</dt><dd>{c.orgName ?? 'Unknown'}{c.orgCode ? <span className="muted"> ({c.orgCode})</span> : null}</dd></> : null}
-        {c.caseId || c.manufacturingMode !== 'direct' ? <><dt>Case ID</dt><dd>{c.caseId ?? 'None'}</dd></> : null}
+        {c.caseId || c.manufacturingMode !== 'direct' ? <><dt>Case ID</dt><dd>{c.caseId ?? 'Not set'}</dd></> : null}
         <dt>Patient</dt>
         <dd>
-          {name !== null ? (
+          {!staff && c.patientName ? (
+            // The company that uploaded the name sees it in full: masking it from its own people adds nothing, so no "Show name" step and no access log entry.
+            <strong>{c.patientName}</strong>
+          ) : name !== null ? (
             <span className="row"><strong>{name || 'No name stored'}</strong> <Button size="sm" onClick={() => setName(null)}>Hide</Button></span>
           ) : c.hasPatientName ? (
             <span className="row"><span className="masked">{c.patientMasked}</span>{can('case.reveal_name') ? <Button size="sm" loading={reveal.isPending} onClick={() => reveal.mutate()}><Eye size={14} aria-hidden="true" /> Show name</Button> : null}</span>
-          ) : <span className="muted">Not given</span>}
+          ) : <span className="muted">Not set</span>}
           {err ? <div className="field-error">{err}</div> : null}
-          {c.hasPatientName && can('case.reveal_name') && name === null ? <div className="hint">{staff ? 'Showing the name is recorded. The partner sees it in their access log.' : 'Showing the name is recorded in your access log.'}</div> : null}
+          {staff && c.hasPatientName && can('case.reveal_name') && name === null ? <div className="hint">Showing the name is recorded. The partner sees it in their access log.</div> : null}
         </dd>
         <dt>Type</dt><dd>{humanise(c.kind)}{c.manufacturingMode === 'direct' ? ', direct manufacturing' : ''}</dd>
         <dt>Priority</dt><dd>{c.priority === 'rush' ? 'Rush' : 'Normal'}</dd>
@@ -510,6 +571,7 @@ function mergeCheckedEvents<T extends { type?: string }>(events: T[]): { e: T; n
 
 /** Erasure on request. Says exactly what goes and what stays, and asks for the case reference to be typed. The authenticator prompt comes from the global step up host. */
 function EraseDialog({ open, c, followUps, onClose, onDone }: { open: boolean; c: CaseItem; followUps: number; onClose: () => void; onDone: (text: string) => void }) {
+  const mfa = useMfaRequired();
   const [typed, setTyped] = useState('');
   const [error, setError] = useState<string | null>(null);
   useEffect(() => { if (open) { setTyped(''); setError(null); } }, [open]);
@@ -553,7 +615,7 @@ function EraseDialog({ open, c, followUps, onClose, onDone }: { open: boolean; c
         {direct ? <Notice tone="warn" title="The customer portal">The K Line portal keeps its own copy. Ask K Line to remove it there.</Notice> : null}
         {inFactory ? <Notice tone="warn">K Line is already working on this case. It will be told that the data was erased, and production cannot continue without the files.</Notice> : null}
         {followUps > 0 ? <Notice tone="info">This case has {followUps === 1 ? 'a follow up case' : `${followUps} follow up cases`} (a replacement or rework). {followUps === 1 ? 'It keeps' : 'They keep'} {followUps === 1 ? 'its' : 'their'} own copy of the data. Erase {followUps === 1 ? 'it' : 'them'} separately if needed.</Notice> : null}
-        <Field label={`Type ${c.ref} to confirm`} hint="You will be asked for your authenticator code.">
+        <Field label={`Type ${c.ref} to confirm`} hint={mfa ? 'You will be asked for your authenticator code.' : undefined}>
           {(p) => <input {...p} value={typed} autoComplete="off" spellCheck={false} onChange={(e) => setTyped(e.target.value)} />}
         </Field>
       </div>
@@ -626,56 +688,23 @@ function MapDialog({ file, onClose, onDone }: { file: CaseFile | null; onClose: 
   );
 }
 
-function AddFilesButtons({ caseId, onDone }: { caseId: string; onDone: () => void }) {
-  const filesRef = useRef<HTMLInputElement>(null);
-  const dirRef = useRef<HTMLInputElement>(null);
-  const [busy, setBusy] = useState(false);
-  const [status, setStatus] = useState<Record<string, FileStatus>>({});
-  const [notes, setNotes] = useState<string[]>([]);
-
-  async function run(list: FileList | null) {
-    if (!list || !list.length) return;
-    setBusy(true);
-    setNotes([]);
-    setStatus({});
-    const read = await readFileList(list);
-    const specs: UploadSpec[] = [];
-    let skipped = 0;
-    for (const f of read.files) {
-      const segs = f.path.split('/');
-      const name = segs[segs.length - 1]!;
-      const parsed = parseFileName(f.path, segs.slice(1, -1));
-      if (!isUploadable(parsed)) { skipped++; continue; }
-      specs.push({ key: f.path, name, source: f.source, arch: parsed.arch, step: parsed.step, template: parsed.template });
-    }
-    const n = [...read.notes];
-    if (skipped) n.push(`${formatNumber(skipped)} ${skipped === 1 ? 'file was' : 'files were'} skipped because the type is not accepted.`);
-    setNotes(n);
-    try {
-      await uploadCaseFiles(caseId, specs, { onFile: (k, s) => setStatus((prev) => ({ ...prev, [k]: s })) });
-    } finally {
-      setBusy(false);
-      onDone();
-    }
-  }
-  const entries = Object.entries(status);
+/** One plain line about where the case stands and what to do next (review of 8 Oct 2026, A2 and R3). Integration errors never show here. */
+function PlainStatus({ c }: { c: CaseItem }) {
+  const st = caseStatus(c);
+  if (c.status === 'draft' || c.status === 'on_hold') return null; // the draft and hold notices already say it
+  const address = c.portal.actionNeeded === 'case_address';
   return (
-    <div className="stack-sm" style={{ justifyItems: 'end' }}>
-      <div className="row">
-        <input ref={filesRef} type="file" multiple hidden aria-label="Choose files to add" onChange={(e) => { void run(e.target.files); e.target.value = ''; }} />
-        <input ref={dirRef} type="file" hidden aria-label="Choose a folder to add" {...({ webkitdirectory: '', directory: '' } as Record<string, string>)} onChange={(e) => { void run(e.target.files); e.target.value = ''; }} />
-        <Button size="sm" disabled={busy} onClick={() => filesRef.current?.click()}><FilePlus2 size={14} aria-hidden="true" /> Add files</Button>
-        <Button size="sm" disabled={busy} onClick={() => dirRef.current?.click()}><FolderPlus size={14} aria-hidden="true" /> Add a folder</Button>
-      </div>
-      {notes.map((n) => <p key={n} className="small muted">{n}</p>)}
-      {entries.length ? (
-        <div className="stack-sm" style={{ width: 'min(360px, 80vw)' }} aria-live="polite">
-          <p className="small muted">{formatNumber(entries.filter(([, s]) => s.phase === 'ready').length)} of {formatNumber(entries.length)} files done</p>
-          <ProgressBar label="Upload progress" value={entries.reduce((a, [, s]) => a + (s.phase === 'ready' || s.phase === 'rejected' || s.phase === 'processing' ? 1 : s.total ? s.sent / s.total : 0), 0) / entries.length} />
-          {entries.filter(([, s]) => s.phase === 'error' || s.phase === 'rejected').slice(0, 5).map(([k, s]) => <p key={k} className="field-error">{k.split('/').pop()}: {s.error}</p>)}
-        </div>
-      ) : null}
-    </div>
+    <Notice
+      tone={address ? 'warn' : st.tone === 'good' ? 'good' : 'info'}
+      title={st.text}
+      action={address ? <Link className="btn btn-sm" to="/portal/account#case-address">Open case address</Link> : undefined}
+    >
+      {address
+        ? 'K Line needs your case address to send the aligners back. Add it, and we send this case on.'
+        : c.manufacturingMode === 'direct' && c.portal.status === 'failed'
+          ? 'Your case is safe with us. K Line has been told and keeps trying in the background. You do not need to do anything.'
+          : st.next ?? 'You do not need to do anything now.'}
+    </Notice>
   );
 }
 

@@ -43,7 +43,7 @@ export async function bulkRoutes(app: FastifyInstance): Promise<void> {
   app.get('/api/bulk/batches/:id', reader, async (req) => {
     const a = getAuth(req);
     const { id } = parse(idParam, req.params);
-    return getBatch(dbCtx(a), id);
+    return getBatch(dbCtx(a), a, id);
   });
 
   app.post('/api/cases/:id/portal/retry', writer, async (req) => {

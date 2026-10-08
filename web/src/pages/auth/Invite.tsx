@@ -6,8 +6,10 @@ import { homeFor, useAuth } from '../../lib/auth';
 import { Button, Field, Notice, Spinner } from '../../ui/Common';
 import { AuthLayout } from './AuthLayout';
 import { PASSWORD_HINT } from './ResetPassword';
+import { useMfaRequired } from '../../lib/orgApi';
 
 export default function Invite() {
+  const mfa = useMfaRequired();
   const { token = '' } = useParams();
   const nav = useNavigate();
   const { refresh } = useAuth();
@@ -48,7 +50,7 @@ export default function Invite() {
     );
   }
   return (
-    <AuthLayout title={`Welcome to ${info.data.orgName}`} intro={`Hello ${info.data.name}. Choose a password for ${info.data.email}. Next you will set up your authenticator app.`}>
+    <AuthLayout title={`Welcome to ${info.data.orgName}`} intro={`Hello ${info.data.name}. Choose a password for ${info.data.email}.${mfa ? ' Next you will set up your authenticator app.' : ''}`}>
       <form onSubmit={submit} className="stack">
         {error ? <Notice tone="bad">{error}</Notice> : null}
         <Field label="Password" hint={PASSWORD_HINT}>

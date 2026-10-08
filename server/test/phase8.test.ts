@@ -408,7 +408,13 @@ describe('showing the logo', () => {
 
 // ---------------------------------------------------------------------------
 describe('sending the case address with direct manufacturing cases', () => {
-  const portalOf = async (up_: Client, id: string) => (await up_.call('GET', `/api/cases/${id}`)).json.case.portal;
+  /** The portal block as the partner sees it, plus the error texts from the database: a partner is never given those (usability review of 8 Oct 2026, R3). */
+  const portalOf = async (up_: Client, id: string) => {
+    const p = (await up_.call('GET', `/api/cases/${id}`)).json.case.portal;
+    expect(p.lastError).toBeUndefined();
+    const db = (await q(`SELECT portal_push->>'lastError' AS e FROM cases WHERE id = $1`, [id]))[0];
+    return db?.e ? { ...p, lastError: db.e as string } : p;
+  };
 
   async function directCase(c: Client, pid: string, first: string, last: string, opts: { files?: boolean } = {}) {
     const b = await c.call('POST', '/api/bulk/batches', { cases: [{ key: pid, patientId: pid, firstName: first, lastName: last }] });
@@ -493,7 +499,8 @@ describe('sending the case address with direct manufacturing cases', () => {
     expect(p).toMatchObject({ status: 'failed', lastError: 'The K Line portal rejected the request. (HTTP 400)' });
     expect(fake.calls.map((c) => c.op)).toEqual(['createCase', 'setShippingAddress']);
     expect([...fake.cases.values()][0]!.submitted).toBe(false);
-    expect((await q(`SELECT status FROM jobs WHERE kind = 'bulk.push' AND payload->>'caseId' = $1`, [id])).every((j) => j.status !== 'queued')).toBe(true);
+    // nothing runs again now: the one queued job is the Hub's own retry for later (the partner is not told, K Line is)
+    expect((await q(`SELECT run_at > now() AS later FROM jobs WHERE kind = 'bulk.push' AND status = 'queued' AND payload->>'caseId' = $1`, [id])).every((j) => j.later)).toBe(true);
     // a retry by hand finishes the job (the address call is repeated, the case is not)
     expect((await up.call('POST', `/api/cases/${id}/portal/retry`, {})).status).toBe(200);
     await runDueJobs();
@@ -513,10 +520,14 @@ describe('sending the case address with direct manufacturing cases', () => {
     expect(fake.calls).toEqual([]); // nothing was created at the portal
     // no retries are queued
     expect((await q(`SELECT status, attempts FROM jobs WHERE kind = 'bulk.push' AND payload->>'caseId' = $1`, [id])).every((j) => j.status !== 'queued')).toBe(true);
-    const events = (await up.call('GET', `/api/cases/${id}`)).json.events.filter((e: any) => e.type === 'portal_push_failed');
+    // the failure is in the record for K Line, and not in the partner's timeline
+    expect((await up.call('GET', `/api/cases/${id}`)).json.events.some((e: any) => e.type === 'portal_push_failed')).toBe(false);
+    const events = await q(`SELECT data FROM case_events WHERE case_id = $1 AND type = 'portal_push_failed'`, [id]);
     expect(events).toHaveLength(1);
     expect(events[0].data).toMatchObject({ code: 'case_address_required' });
     expect(JSON.stringify(events)).not.toMatch(/Gus|Missing/);
+    // the one thing the partner can fix is shown to them
+    expect((await up.call('GET', `/api/cases/${id}`)).json.case.portal.actionNeeded).toBe('case_address');
     // the partner fixes the profile and presses Try again
     expect((await admin.call('PUT', '/api/org/profile', { caseAddress: { phone: '+351276000000' } })).status).toBe(200);
     expect((await up.call('POST', `/api/cases/${id}/portal/retry`, {})).status).toBe(200);

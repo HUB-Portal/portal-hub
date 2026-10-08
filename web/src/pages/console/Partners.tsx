@@ -7,6 +7,7 @@ import { formatDate, formatNumber } from '../../lib/format';
 import { COUNTRIES, codeProblem, countryName, suggestCompanyCode } from '../../lib/signup';
 import { Badge, Button, Card, Dialog, Empty, Field, Notice, PageHeader, Spinner } from '../../ui/Common';
 import { Gate } from './Console';
+import { IfMfa } from '../../ui/IfMfa';
 
 export interface PartnerRow {
   id: string;
@@ -257,7 +258,7 @@ function AddPartnerDialog({ open, onClose }: { open: boolean; onClose: () => voi
             ) : null}
           </div>
         ) : null}
-        <p className="small muted">You will be asked for your authenticator code.</p>
+        <IfMfa><p className="small muted">You will be asked for your authenticator code.</p></IfMfa>
         <div className="row-end">
           <Button onClick={onClose}>Cancel</Button>
           <Button type="submit" variant="primary" loading={m.isPending} disabled={!valid}>Add partner</Button>

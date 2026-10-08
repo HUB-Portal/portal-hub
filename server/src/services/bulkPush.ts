@@ -8,7 +8,8 @@ import { pipeline } from 'node:stream/promises';
 import { audit } from '../audit';
 import { SYSTEM, many, one, tx } from '../db';
 import { decryptField, fieldAad } from '../crypto/keys';
-import { registerJob, type JobRow } from '../jobs';
+import { enqueue, registerJob, type JobRow } from '../jobs';
+import { notifyKline } from './notify';
 import { refreshBatch } from './cases';
 import { FILE_COLUMNS, fileContentStream, fileName } from './files';
 import { canonicalNames, csvCell, zipStream, type ZipEntry } from './packaging';
@@ -61,6 +62,14 @@ class PushRefused extends Error {
 const SAFE_ERROR = 'The push failed because of an internal problem.';
 
 /**
+ * A push that fails for a reason the partner cannot fix (the portal connection or the portal itself) is K Line's to repair, not the partner's.
+ * K Line is alerted once, and the push is tried again by itself every AUTO_RETRY_MINUTES, up to AUTO_RETRY_LIMIT times (about two days).
+ * The partner sees "Delayed on our side, no action needed" and never the error text (review of 8 Oct 2026, R3).
+ */
+const AUTO_RETRY_MINUTES = 30;
+const AUTO_RETRY_LIMIT = 96;
+
+/**
  * Pushes one direct manufacturing case to the K Line portal. Safe to run again at any point:
  * the portal case uuid is stored straight after it is created and every finished upload is recorded.
  * Nothing in job payloads, logs or error text holds patient data.
@@ -78,16 +87,37 @@ export async function bulkPushJob(job: Pick<JobRow, 'payload' | 'attempts' | 'ma
     // An erased or purged case has no names left to send.
     if (!row || row.purged_at || row.manufacturing_mode !== 'direct' || !['submitted', 'ready'].includes(row.status)) return null;
     const push = row.portal_push ?? {};
-    if (push.status === 'pushed') return null;
+    const files = await many<any>(c, `SELECT ${FILE_COLUMNS} FROM files f WHERE f.case_id = $1 AND f.state = 'ready' ORDER BY f.created_at, f.id`, [caseId]);
+    if (push.status === 'pushed') {
+      // Already at the portal. Only documents added after that (the paperclip on a sent case) still have to go there.
+      const sent = push.uploads?.docs ?? {};
+      if (!row.portal_case_uuid || !splitForPortal(files).docs.some((f) => !sent[f.id])) return null;
+      return { row, files, push, late: true as const };
+    }
     await c.query(
       `UPDATE cases SET portal_push = (COALESCE(portal_push, '{}'::jsonb) - 'lastError') || jsonb_build_object('status', 'pushing', 'attempts', $2::int, 'startedAt', now()) WHERE id = $1`,
       [caseId, Number(push.attempts ?? 0) + 1],
     );
-    const files = await many<any>(c, `SELECT ${FILE_COLUMNS} FROM files f WHERE f.case_id = $1 AND f.state = 'ready' ORDER BY f.created_at, f.id`, [caseId]);
-    return { row, files, push };
+    return { row, files, push, late: false as const };
   });
   if (!loaded) return;
   const { row, files } = loaded;
+  if (loaded.late) {
+    // A failure here leaves the case as it is (it was sent already). The job is tried again, and K Line sees the failed job.
+    const client = getPortalClient({ id: row.org_id, settings: row.org_settings ?? {} });
+    try {
+      const sent: Record<string, boolean> = { ...(loaded.push.uploads?.docs ?? {}) };
+      for (const f of splitForPortal(files).docs) {
+        if (sent[f.id]) continue;
+        await client.uploadFile(row.portal_case_uuid, 'field_case_other_docs', fileName(f), Readable.from(fileContentStream(f)), Number(f.size));
+        sent[f.id] = true;
+        await recordProgress(caseId, { uploads: { ...(loaded.push.uploads ?? { bundle: false, submitted: true }), docs: sent } });
+      }
+    } finally {
+      await (client as PortalClient & { close?: () => Promise<void> }).close?.().catch(() => undefined);
+    }
+    return;
+  }
   const progress: PushProgress = { docs: {}, bundle: false, submitted: false, ...(loaded.push.uploads ?? {}) };
   let client: (PortalClient & { close?: () => Promise<void> }) | undefined;
   let tmpFile: string | undefined;
@@ -104,8 +134,11 @@ export async function bulkPushJob(job: Pick<JobRow, 'payload' | 'attempts' | 'ma
     let uuid: string | null = row.portal_case_uuid;
     if (!uuid) {
       await recordProgress(caseId, { step: 1 });
-      const first = decryptField(row.patient_first_enc, fieldAad.casePatientFirst(caseId));
-      const last = decryptField(row.patient_last_enc, fieldAad.casePatientLast(caseId));
+      // The names are optional on our side, the K Line portal needs a last name: a case without one goes under its reference (no patient data).
+      let first = decryptField(row.patient_first_enc, fieldAad.casePatientFirst(caseId));
+      let last = decryptField(row.patient_last_enc, fieldAad.casePatientLast(caseId));
+      if (!first && !last) { first = 'Patient'; last = row.ref; }
+      else if (!last) { last = first; first = ''; }
       const instructions = row.notes_enc ? decryptField(row.notes_enc, fieldAad.caseNotes(caseId)) : null;
       const created = await client.createCase({
         firstName: first,
@@ -188,6 +221,21 @@ export async function bulkPushJob(job: Pick<JobRow, 'payload' | 'attempts' | 'ma
         ]);
         await audit(c, { actorType: 'system', orgId: row.org_id, action: 'case.portal_push_failed', targetType: 'case', targetId: caseId, details: { ref: row.ref, code: pe?.code ?? refused?.code ?? 'internal' } });
         await refreshBatch(c, row.bulk_batch_id);
+        if (!refused) {
+          const tries = Number(loaded.push.autoRetries ?? 0);
+          if (tries === 0) {
+            await notifyKline(c, row.org_id, {
+              kind: 'portal_push_failed',
+              title: 'A direct manufacturing case could not be sent to the K Line portal',
+              body: `Case ${row.ref} is waiting. Check the portal connection of the partner. The Hub tries again by itself every ${AUTO_RETRY_MINUTES} minutes.`,
+              data: { caseId, ref: row.ref },
+            });
+          }
+          if (tries < AUTO_RETRY_LIMIT) {
+            await enqueue(c, 'bulk.push', { caseId }, { orgId: row.org_id, maxAttempts: 5, runAt: new Date(Date.now() + AUTO_RETRY_MINUTES * 60_000) });
+            await c.query(`UPDATE cases SET portal_push = portal_push || jsonb_build_object('autoRetries', $2::int) WHERE id = $1`, [caseId, tries + 1]);
+          }
+        }
       });
       if (permanent) return; // no point retrying: the partner fixes the cause and retries by hand
       throw new Error(lastError);

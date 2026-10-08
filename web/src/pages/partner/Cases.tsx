@@ -3,10 +3,11 @@ import { Link, useSearchParams } from 'react-router-dom';
 import { useQuery, keepPreviousData } from '@tanstack/react-query';
 import { api, errorText, qs } from '../../lib/api';
 import { useAuth } from '../../lib/auth';
-import { formatDate, formatNumber, portalLabel, portalTone } from '../../lib/format';
+import { caseStatus, formatDate, formatNumber } from '../../lib/format';
+import { useCaseCounts } from '../../lib/orgApi';
 import type { CaseItem, CaseList } from '../../lib/types';
 import { Badge, Button, Card, Empty, Notice, PageHeader, Pagination, Spinner } from '../../ui/Common';
-import { StatusBadge } from '../../ui/StatusBadge';
+import { AddDocuments } from '../../ui/AddDocuments';
 
 export const STATUS_FILTERS: { id: string; label: string }[] = [
   { id: '', label: 'All cases' },
@@ -35,31 +36,37 @@ export function CaseChecks({ c }: { c: CaseItem }) {
   );
 }
 
-export function CaseRows({ items }: { items: CaseItem[] }) {
+/** One plain status per case, in words, with what to do next (review of 8 Oct 2026, A2). */
+export function CaseStatusCell({ c }: { c: CaseItem }) {
+  const st = caseStatus(c);
+  return (
+    <>
+      <Badge tone={st.tone}>{st.text}</Badge>
+      {st.next ? <div className="small muted">{st.next}</div> : null}
+    </>
+  );
+}
+
+export function CaseRows({ items, onChanged }: { items: CaseItem[]; onChanged?: () => void }) {
   return (
     <div className="table-wrap">
       <table className="table">
         <thead>
           <tr>
-            <th>Reference</th><th>Case ID</th><th>Patient</th><th>Status</th><th className="num">Upper</th><th className="num">Lower</th><th>Checks</th><th>Created</th>
+            <th>Reference</th><th>Case ID</th><th>Patient</th><th>Status and next step</th><th className="num">Upper</th><th className="num">Lower</th><th>Created</th><th><span className="sr-only">Add documents</span></th>
           </tr>
         </thead>
         <tbody>
           {items.map((c) => (
             <tr key={c.id}>
               <td className="link-cell nowrap"><Link to={`/portal/cases/${c.id}`}>{c.ref}</Link><KindBadge c={c} /></td>
-              <td>
-                {c.caseId ?? <span className="muted">None</span>}
-                {c.manufacturingMode === 'direct' ? (
-                  <div><Badge tone={portalTone(c.portal.status, c.portal.demo)} title="Direct manufacturing case">{c.portal.demo && c.portal.status === 'pushed' ? portalLabel(c.portal.status, true) : `Portal: ${portalLabel(c.portal.status)}`}</Badge></div>
-                ) : null}
-              </td>
-              <td>{c.patientMasked ? <span className="masked">{c.patientMasked}</span> : <span className="muted">Not given</span>}</td>
-              <td><StatusBadge c={c} /></td>
+              <td>{c.caseId ?? <span className="muted">Not set</span>}</td>
+              <td>{c.patientName ?? c.patientMasked ?? <span className="muted">Not set</span>}</td>
+              <td><CaseStatusCell c={c} /></td>
               <td className="num">{formatNumber(c.counts.upper)}</td>
               <td className="num">{formatNumber(c.counts.lower)}</td>
-              <td><CaseChecks c={c} /></td>
               <td className="nowrap">{formatDate(c.createdAt)}</td>
+              <td className="right">{!c.purgedAt && c.status !== 'cancelled' ? <AddDocuments caseId={c.id} status={c.status} compact onDone={onChanged} /> : null}</td>
             </tr>
           ))}
         </tbody>
@@ -70,6 +77,7 @@ export function CaseRows({ items }: { items: CaseItem[] }) {
 
 export default function Cases() {
   const { can } = useAuth();
+  const counts = useCaseCounts(true);
   const [params, setParams] = useSearchParams();
   const status = params.get('status') ?? '';
   const page = Math.max(1, Number(params.get('page') ?? 1) || 1);
@@ -120,9 +128,15 @@ export default function Cases() {
           </div>
         </div>
         <div className="tabs" role="group" aria-label="Filter by status">
-          {STATUS_FILTERS.map((f) => (
-            <button key={f.id} type="button" className="tab" aria-pressed={status === f.id} onClick={() => setFilter(f.id)}>{f.label}</button>
-          ))}
+          {STATUS_FILTERS.map((f) => {
+            // Counts on the chips (review of 8 Oct 2026, A3): drafts that need work no longer sit unnoticed.
+            const n = f.id === 'attention' ? counts.data?.attention : f.id === 'draft' ? counts.data?.drafts : f.id === '' ? counts.data?.all : undefined;
+            return (
+              <button key={f.id} type="button" className="tab" aria-pressed={status === f.id} onClick={() => setFilter(f.id)}>
+                {f.label}{n !== undefined ? <span className={`chip-count${f.id === 'attention' && n > 0 ? ' chip-count-alert' : ''}`}>{formatNumber(n)}</span> : null}
+              </button>
+            );
+          })}
         </div>
         {q.isError ? <Notice tone="bad" action={<Button size="sm" onClick={() => q.refetch()}>Try again</Button>}>{errorText(q.error)}</Notice> : null}
         {q.isLoading ? <Spinner /> : null}
@@ -134,7 +148,7 @@ export default function Cases() {
         {q.data && q.data.items.length ? (
           <>
             <p className="muted small" role="status">{formatNumber(q.data.total)} {q.data.total === 1 ? 'case' : 'cases'}</p>
-            <CaseRows items={q.data.items} />
+            <CaseRows items={q.data.items} onChanged={() => { void q.refetch(); void counts.refetch(); }} />
             <Pagination page={q.data.page} pageSize={q.data.pageSize} total={q.data.total} onPage={setPage} />
           </>
         ) : null}

@@ -217,7 +217,13 @@ describe('own case address: write', () => {
 
 // ---------------------------------------------------------------------------
 describe('which address a direct manufacturing case is sent with', () => {
-  const portalOf = async (c: Client, id: string) => (await c.call('GET', `/api/cases/${id}`)).json.case.portal;
+  /** The portal block as the partner sees it, plus the error texts from the database: a partner is never given those (usability review of 8 Oct 2026, R3). */
+  const portalOf = async (c: Client, id: string) => {
+    const p = (await c.call('GET', `/api/cases/${id}`)).json.case.portal;
+    expect(p.lastError).toBeUndefined();
+    const db = (await q(`SELECT portal_push->>'lastError' AS e FROM cases WHERE id = $1`, [id]))[0];
+    return db?.e ? { ...p, lastError: db.e as string } : p;
+  };
   const pushOf = async (id: string) => (await q(`SELECT portal_push FROM cases WHERE id = $1`, [id]))[0].portal_push;
 
   async function directCase(c: Client, pid: string, first: string, last: string, files = true) {
@@ -382,7 +388,7 @@ describe('which address a direct manufacturing case is sent with', () => {
       const p = await portalOf(uma, id);
       expect(p).toMatchObject({ status: 'failed', lastError: CASE_ADDRESS_REQUIRED_MESSAGE });
       expect(fake.calls).toEqual([]);
-      const events = (await uma.call('GET', `/api/cases/${id}`)).json.events.filter((e: any) => e.type === 'portal_push_failed');
+      const events = await q(`SELECT data FROM case_events WHERE case_id = $1 AND type = 'portal_push_failed'`, [id]);
       expect(events).toHaveLength(1);
       expect(events[0].data).toMatchObject({ code: 'case_address_required' });
       expect((await q(`SELECT status FROM jobs WHERE kind = 'bulk.push' AND payload->>'caseId' = $1`, [id])).every((j) => j.status !== 'queued')).toBe(true);

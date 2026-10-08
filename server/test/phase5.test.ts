@@ -149,7 +149,7 @@ describe('public configuration and seed', () => {
   it('answers the public config without signing in', async () => {
     const r = await new Client(app).call('GET', '/api/public/config');
     expect(r.status).toBe(200);
-    expect(r.json).toEqual({ privacyEmail: 'privacy@hub.test', supportEmail: 'support@hub.test', signupEnabled: true, privacyVersion: PRIVACY_VERSION, googleSignIn: false });
+    expect(r.json).toEqual({ privacyEmail: 'privacy@hub.test', supportEmail: 'support@hub.test', signupEnabled: true, privacyVersion: PRIVACY_VERSION, googleSignIn: false, mfaRequired: true });
   });
 
   it('seeds Contoso Smile confirmed and waiting, and Fabrikam Dental Lab unconfirmed with a live link', async () => {

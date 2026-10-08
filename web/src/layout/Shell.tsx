@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { Link, NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { Activity, Boxes, Building2, FileCheck2, Inbox, KeyRound, ListChecks, LogOut, Menu, MapPin, Package, PlugZap, Rocket, ScrollText, ShieldAlert, ShieldCheck, Tag, Upload, UserCircle, UserCog, Users, Webhook, Workflow, X } from 'lucide-react';
 import { useAuth, useMenu } from '../lib/auth';
-import { useOrgLogo } from '../lib/orgApi';
+import { useCaseCounts, useOrgLogo } from '../lib/orgApi';
 import { Button, Notice } from '../ui/Common';
 import { NotificationBell } from '../ui/NotificationBell';
 import { OrgLogoImage } from '../ui/OrgLogo';
@@ -15,7 +15,7 @@ export function BrandMark() {
   );
 }
 
-interface NavItem { to: string; label: string; icon: typeof Upload; end?: boolean; show: boolean }
+interface NavItem { to: string; label: string; icon: typeof Upload; end?: boolean; show: boolean; /** A number on the menu item, for example the cases that need attention. */ badge?: number }
 
 export function Shell() {
   const { me, can, isKline, signOut } = useAuth();
@@ -27,11 +27,12 @@ export function Shell() {
   const logo = useOrgLogo(!isKline && can('org.read'));
   const showLogo = !isKline && logo.hasLogo === true && can('org.read');
   const onCompanyPage = loc.pathname.startsWith('/portal/company');
+  const counts = useCaseCounts(!isKline && can('case.read'));
 
   const partnerItems: NavItem[] = [
     { to: '/portal', label: 'Direct manufacturing', icon: Package, end: true, show: can('case.write') },
     { to: '/portal/getting-started', label: 'Getting started', icon: Rocket, show: true },
-    { to: '/portal/cases', label: 'Cases', icon: ListChecks, show: can('case.read') },
+    { to: '/portal/cases', label: 'Cases', icon: ListChecks, show: can('case.read'), badge: counts.data?.attention },
     { to: '/portal/claims', label: 'Quality claims', icon: ShieldAlert, show: can('claim.read') && menu.claims },
     { to: '/portal/spec', label: 'Production spec', icon: FileCheck2, show: can('spec.read') && menu.spec },
     { to: '/portal/materials', label: 'Materials', icon: Boxes, show: can('material.read') && menu.materials },
@@ -78,6 +79,7 @@ export function Shell() {
             <NavLink key={i.to} to={i.to} end={i.end}>
               <i.icon size={18} aria-hidden="true" />
               {i.label}
+              {i.badge ? <span className="nav-badge" title={`${i.badge} to look at`}>{i.badge}<span className="sr-only"> to look at</span></span> : null}
             </NavLink>
           ))}
         </nav>

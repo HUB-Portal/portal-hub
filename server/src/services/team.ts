@@ -156,7 +156,7 @@ export async function enableMember(a: AuthContext, req: FastifyRequest, s: TeamS
   await tx(dbCtx(a), async (c) => {
     const u = await target(c, s, id);
     if (u.status !== 'disabled') return;
-    await c.query(`UPDATE users SET status = $2, updated_at = now() WHERE id = $1`, [id, u.mfa_enabled ? 'active' : 'invited']);
+    await c.query(`UPDATE users SET status = $2, updated_at = now() WHERE id = $1`, [id, u.mfa_enabled || (!config.mfaRequired && u.password_hash) ? 'active' : 'invited']);
     await audit(c, { actorType: 'user', actorId: a.userId, orgId: s.orgId, action: `${auditPrefix}.enabled`, targetType: 'user', targetId: id, ...meta(req) });
   });
 }

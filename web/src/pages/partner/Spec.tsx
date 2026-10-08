@@ -13,6 +13,7 @@ import {
 } from '../../lib/specModel';
 import { Badge, Button, Card, Dialog, Empty, Field, Notice, PageHeader, Spinner } from '../../ui/Common';
 import { BagEditor } from './BagLayout';
+import { IfMfa } from '../../ui/IfMfa';
 
 type HashState = { state: 'checking' } | { state: 'none' } | { state: 'error'; message: string } | { state: 'match' | 'mismatch'; computed: string };
 
@@ -381,13 +382,13 @@ export function SpecWorkspace({ staff, orgId }: { staff: boolean; orgId?: string
       <Dialog open={dialog === 'propose'} title="Propose this version?" onClose={() => setDialog(null)} footer={<><Button onClick={() => setDialog(null)}>Not yet</Button><Button variant="primary" loading={propose.isPending} onClick={() => propose.mutate()}>Propose</Button></>}>
         <div className="stack-sm">
           <p>The draft can no longer be edited once it is proposed. The other side can then read it, sign it or reject it.</p>
-          <p>You will be asked for a fresh code from your authenticator app. Proposing does not sign. You still need to sign for your side.</p>
+          <p><IfMfa>You will be asked for a fresh code from your authenticator app. </IfMfa>Proposing does not sign. You still need to sign for your side.</p>
         </div>
       </Dialog>
       <Dialog open={dialog === 'sign'} title={`Sign version ${spec?.version ?? ''}?`} onClose={() => setDialog(null)} footer={<><Button onClick={() => setDialog(null)}>Not yet</Button><Button variant="primary" loading={sign.isPending} onClick={() => sign.mutate()}>Sign</Button></>}>
         <div className="stack-sm">
           <p>Your name and the time are recorded as the {staff ? 'K Line' : 'partner'} signature. When both sides have signed, this version becomes the active specification and replaces the current one.</p>
-          <p>You will be asked for a fresh code from your authenticator app.</p>
+          <IfMfa><p>You will be asked for a fresh code from your authenticator app.</p></IfMfa>
         </div>
       </Dialog>
       <Dialog open={dialog === 'reject'} title="Reject this version" onClose={() => setDialog(null)} footer={<><Button onClick={() => setDialog(null)}>Cancel</Button><Button variant="danger" loading={reject.isPending} disabled={!rejectNote.trim()} onClick={() => reject.mutate()}>Reject the version</Button></>}>

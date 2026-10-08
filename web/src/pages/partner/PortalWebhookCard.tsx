@@ -4,6 +4,7 @@ import { api, errorText } from '../../lib/api';
 import { formatDateTime, formatNumber, relativeAge } from '../../lib/format';
 import { Badge, Button, Card, Dialog, Notice } from '../../ui/Common';
 import { CopyButton } from '../../ui/CopyButton';
+import { IfMfa } from '../../ui/IfMfa';
 
 export interface PortalWebhookInfo {
   configured: boolean;
@@ -90,12 +91,12 @@ export function PortalWebhookCard({ webhook, locked = false }: { webhook: Portal
             <Button onClick={() => { setFlash(null); setConfirm('rotate'); }} disabled={locked}>Make a new secret</Button>
             <Button variant="danger" onClick={() => { setFlash(null); setConfirm('delete'); }} disabled={locked}>Remove the address</Button>
           </div>
-          <p className="small muted">You will be asked for your authenticator code. The address stays the same when you make a new secret, but the old secret stops working at once.</p>
+          <p className="small muted"><IfMfa>You will be asked for your authenticator code. </IfMfa>The address stays the same when you make a new secret, but the old secret stops working at once.</p>
         </div>
       ) : (
         <div className="row" style={{ marginTop: 12 }}>
           <Button variant="primary" loading={make.isPending} disabled={locked} onClick={() => { setFlash(null); make.mutate(); }}>Create address and secret</Button>
-          <span className="small muted">You will be asked for your authenticator code.</span>
+          <IfMfa><span className="small muted">You will be asked for your authenticator code.</span></IfMfa>
         </div>
       )}
       <p className="small muted" style={{ marginTop: 12 }}>The Hub still checks the portal every 10 minutes as a backup, in case a message is lost on the way.</p>

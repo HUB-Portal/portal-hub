@@ -1,18 +1,18 @@
 import type { ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 import { useAuth, useMenu } from '../../lib/auth';
-import { usePublicConfig, useOnboarding, type OnboardingItem } from '../../lib/orgApi';
+import { usePublicConfig, useCaseCounts, useMfaRequired, useOnboarding, type OnboardingItem } from '../../lib/orgApi';
 import { Badge, Notice } from '../../ui/Common';
 
 type Lane = 'company' | 'kline';
-interface FlowStep { key: string; lane: Lane; number?: number; title: string; body: ReactNode }
+interface FlowStep { key: string; lane: Lane; number?: number; title: string; body: ReactNode; /** Shown instead of the title and body while two factor sign in is switched off. */ withoutMfa?: { title: string; body: ReactNode } }
 
 const LANE_NAME: Record<Lane, string> = { company: 'Your company', kline: 'K Line' };
 
 const FLOW: FlowStep[] = [
   { key: 'register', lane: 'company', number: 1, title: 'Register the company', body: 'Fill in the registration form with your company details and your case address.' },
   { key: 'confirm', lane: 'company', number: 2, title: 'Confirm the email', body: 'We send you a link. It is valid for 48 hours.' },
-  { key: 'password', lane: 'company', number: 3, title: 'Choose a password and set up the authenticator app', body: 'Everyone signs in with two factor authentication. Save the 10 recovery codes in a safe place.' },
+  { key: 'password', lane: 'company', number: 3, title: 'Choose a password and set up the authenticator app', body: 'Everyone signs in with two factor authentication. Save the 10 recovery codes in a safe place.', withoutMfa: { title: 'Choose a password', body: 'You sign in with your email address and your password.' } },
   { key: 'notified', lane: 'kline', title: 'K Line is notified', body: 'K Line is told that a new company has confirmed its email.' },
   { key: 'prepare', lane: 'company', number: 4, title: 'Prepare the company', body: 'Add your logo, your case address, your production spec and your company details.' },
   {
@@ -42,18 +42,53 @@ const ROLES: { role: string; can: string }[] = [
   { role: 'Viewer', can: 'Can look but not change.' },
 ];
 
-const GOOD_TO_KNOW: string[] = [
-  'Until K Line approves the company, sending cases, inviting people, API keys and material shipments are locked.',
-  'K Line checks your first cases.',
-  'Passwords need at least 12 characters.',
-  'Five wrong sign in attempts lock the account for 15 minutes.',
-  'Sessions end after 30 minutes of inactivity.',
-  'Sensitive actions ask for a fresh code from your authenticator app.',
-  'Invitation links work once and last 7 days.',
-  'A registration that is never confirmed is deleted after 7 days.',
+/** `mfa` marks a line that is only true while two factor sign in is switched on. */
+const GOOD_TO_KNOW: { text: string; mfa?: boolean }[] = [
+  { text: 'Until K Line approves the company, sending cases, inviting people, API keys and material shipments are locked.' },
+  { text: 'K Line checks your first cases.' },
+  { text: 'Passwords need at least 12 characters.' },
+  { text: 'Five wrong sign in attempts lock the account for 15 minutes.' },
+  { text: 'Sessions end after 30 minutes of inactivity.' },
+  { text: 'Sensitive actions ask for a fresh code from your authenticator app.', mfa: true },
+  { text: 'Invitation links work once and last 7 days.' },
+  { text: 'A registration that is never confirmed is deleted after 7 days.' },
 ];
 
+type StepProgress = 'done' | 'next';
+
+/**
+ * Where this company stands in the steps below (review of 8 Oct 2026, A6): finished steps are ticked and the first open one is highlighted.
+ * Only for a signed in partner. Steps the Hub cannot know about (inviting the team) are left unmarked.
+ */
+function useStepProgress(): Record<string, StepProgress> {
+  const { me, can } = useAuth();
+  const signedIn = me?.stage === 'full' && me.org?.kind === 'partner';
+  const onboarding = useOnboarding(!!signedIn && can('org.read'));
+  const counts = useCaseCounts(!!signedIn && can('case.read'));
+  if (!signedIn) return {};
+  const items = onboarding.data?.items;
+  const done = (id: string) => items?.find((i) => i.id === id)?.done === true;
+  const prepared = !!items && ['profile', 'logo', 'case_address', 'spec'].every(done);
+  const state: Record<string, boolean | undefined> = {
+    register: true, confirm: true, password: true,
+    prepare: items ? prepared : undefined,
+    review: items ? done('approval') : undefined,
+    approved: items ? done('approval') : undefined,
+    send: counts.data ? counts.data.all > 0 : undefined,
+  };
+  const out: Record<string, StepProgress> = {};
+  let nextFound = false;
+  for (const f of FLOW) {
+    const v = state[f.key];
+    if (v === true) out[f.key] = 'done';
+    else if (v === false && !nextFound) { out[f.key] = 'next'; nextFound = true; }
+  }
+  return out;
+}
+
 function HowItWorks() {
+  const mfa = useMfaRequired();
+  const progress = useStepProgress();
   return (
     <section className="gs-section" aria-labelledby="gs-how">
       <h2 id="gs-how">How it works</h2>
@@ -63,19 +98,24 @@ function HowItWorks() {
         <span className="gs-lane-head gs-lane-kline">{LANE_NAME.kline}</span>
       </div>
       <ol className="gs-flow">
-        {FLOW.map((s, n) => (
-          <li key={s.key} className={`gs-step gs-${s.lane}`} style={{ gridRow: n + 1 }}>
-            <span className="gs-dot" aria-hidden="true">{s.number ?? ''}</span>
+        {FLOW.map((step, n) => {
+          const s = !mfa && step.withoutMfa ? { ...step, ...step.withoutMfa } : step;
+          return (
+          <li key={s.key} className={`gs-step gs-${s.lane}${progress[s.key] ? ` gs-${progress[s.key]}` : ''}`} style={{ gridRow: n + 1 }} aria-current={progress[s.key] === 'next' ? 'step' : undefined}>
+            <span className="gs-dot" aria-hidden="true">{progress[s.key] === 'done' ? '✓' : s.number ?? ''}</span>
             <div className="gs-card">
               <p className="gs-lane-label">
                 <span className="gs-lane-text">{LANE_NAME[s.lane]}</span>
                 {s.number ? <span className="gs-count">{`Step ${s.number}`}</span> : null}
+                {progress[s.key] === 'done' ? <span className="gs-state gs-state-done">Done</span> : null}
+                {progress[s.key] === 'next' ? <span className="gs-state gs-state-next">Your next step</span> : null}
               </p>
               <h3>{s.title}</h3>
               <div className="gs-body">{s.body}</div>
             </div>
           </li>
-        ))}
+          );
+        })}
       </ol>
     </section>
   );
@@ -154,11 +194,12 @@ function Roles() {
 }
 
 function GoodToKnow() {
+  const mfa = useMfaRequired();
   return (
     <section className="gs-section" aria-labelledby="gs-know">
       <h2 id="gs-know">Good to know</h2>
       <ul className="gs-bullets">
-        {GOOD_TO_KNOW.map((t) => <li key={t}>{t}</li>)}
+        {GOOD_TO_KNOW.filter((t) => mfa || !t.mfa).map((t) => <li key={t.text}>{t.text}</li>)}
       </ul>
     </section>
   );

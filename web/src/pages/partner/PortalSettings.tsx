@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api, errorText } from '../../lib/api';
 import { Button, Card, Field, Notice, PageHeader, Spinner } from '../../ui/Common';
 import { PortalWebhookCard, type PortalWebhookInfo } from './PortalWebhookCard';
+import { IfMfa } from '../../ui/IfMfa';
 
 interface PortalApi { configured: boolean; baseUrl: string | null; userUuid: string | null; doctorId: string | null; webhook?: PortalWebhookInfo }
 
@@ -61,7 +62,7 @@ export default function PortalSettings() {
             <Field label="Doctor ID (optional)">
               {(p) => <input {...p} value={doctorId} onChange={(e) => setDoctorId(e.target.value)} autoComplete="off" />}
             </Field>
-            <p className="small muted">You will be asked for your authenticator code when you save.</p>
+            <IfMfa><p className="small muted">You will be asked for your authenticator code when you save.</p></IfMfa>
             <div className="row">
               <Button type="submit" variant="primary" loading={save.isPending} disabled={!canSave}>Save connection</Button>
               <Button onClick={() => { setTest(null); ping.mutate(); }} loading={ping.isPending} disabled={!q.data.configured}>Test connection</Button>

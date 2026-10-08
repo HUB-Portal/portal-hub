@@ -76,7 +76,8 @@ export async function authenticateRequest(req: FastifyRequest, opts: { bearerOnl
     siteIds: s.siteIds,
     permissions: permissionsFor(s.roles),
     scopes: [],
-    stage: s.stage,
+    // With MFA_REQUIRED off, a session that was started while it was on (password only) is as good as full.
+    stage: config.mfaRequired ? s.stage : 'full',
     sessionId: s.id,
     stepUpAt: s.stepUpAt,
   };
@@ -110,6 +111,7 @@ export function requireScope(auth: AuthContext, scope: string): void {
 
 /** Sensitive actions need an authenticator code within the last STEP_UP_MINUTES. */
 export function requireStepUp(auth: AuthContext): void {
+  if (!config.mfaRequired) return; // no authenticator to ask for while two factor sign in is off
   if (auth.kind !== 'user' || !auth.stepUpAt || Date.now() - new Date(auth.stepUpAt).getTime() > config.stepUpMinutes * 60_000) {
     throw stepUpRequired();
   }

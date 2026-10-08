@@ -10,6 +10,7 @@ import { CaseAddressCard } from './CaseAddressCard';
 import { RecoveryCodes } from '../../ui/RecoveryCodes';
 import { ROLE_INFO } from './Team';
 import { PASSWORD_HINT } from '../auth/ResetPassword';
+import { useMfaRequired } from '../../lib/orgApi';
 
 function deviceLabel(ua: string | null | undefined): string {
   if (!ua) return 'Unknown device';
@@ -90,6 +91,7 @@ export default function Account() {
     onSuccess: (r) => { setMsg({ tone: 'good', text: r.revoked ? `Signed out of ${r.revoked} other ${r.revoked === 1 ? 'device' : 'devices'}.` : 'There were no other devices.' }); qc.invalidateQueries({ queryKey: ['sessions'] }); },
     onError: (e) => setMsg({ tone: 'bad', text: errorText(e) }),
   });
+  const mfa = useMfaRequired();
   const regen = useMutation({
     mutationFn: () => api<{ recoveryCodes: string[] }>('/api/auth/recovery-codes/regenerate', { method: 'POST', body: {} }),
     onSuccess: (r) => { setConfirmCodes(false); setCodes(r.recoveryCodes); refresh(); },
@@ -126,13 +128,13 @@ export default function Account() {
 
       <NotificationSettings />
 
-      <Card title="Recovery codes">
+      {mfa ? <Card title="Recovery codes">
         <p>
           You have <strong>{me?.user.recoveryCodesRemaining ?? 0}</strong> recovery {me?.user.recoveryCodesRemaining === 1 ? 'code' : 'codes'} left. Use one if you lose your phone.
         </p>
         {codes ? <RecoveryCodes codes={codes} /> : null}
         <div><Button onClick={() => setConfirmCodes(true)}>Make new recovery codes</Button></div>
-      </Card>
+      </Card> : null}
 
       <Card title="Where you are signed in" actions={<Button size="sm" loading={revokeOthers.isPending} onClick={() => revokeOthers.mutate()}>Sign out other devices</Button>}>
         {sessions.isLoading ? <Spinner /> : null}

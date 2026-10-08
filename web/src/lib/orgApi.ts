@@ -22,7 +22,7 @@ export const agreementLabel = (k: string) => AGREEMENT_KINDS.find((a) => a.id ==
 
 // ---- public configuration ---------------------------------------------------------------------------------------
 
-export interface PublicConfig { privacyEmail: string | null; supportEmail: string | null; signupEnabled: boolean; privacyVersion: string; googleSignIn: boolean }
+export interface PublicConfig { privacyEmail: string | null; supportEmail: string | null; signupEnabled: boolean; privacyVersion: string; googleSignIn: boolean; /** False while two factor sign in is switched off on the server. */ mfaRequired: boolean }
 
 export function usePublicConfig() {
   return useQuery({
@@ -35,11 +35,31 @@ export function usePublicConfig() {
         signupEnabled: r.signupEnabled !== false,
         privacyVersion: r.privacyVersion ?? PRIVACY_VERSION,
         googleSignIn: r.googleSignIn === true,
+        mfaRequired: r.mfaRequired === true,
       };
     },
     retry: false,
     staleTime: 5 * 60_000,
   });
+}
+
+export interface CaseCounts { all: number; attention: number; drafts: number; draftsWithErrors: number }
+
+/** Counts for the filter chips, the Cases menu badge and the link on Direct manufacturing. Refreshes now and then, and when the cases change. */
+export function useCaseCounts(enabled = true) {
+  return useQuery({
+    queryKey: ['case-counts'],
+    enabled,
+    queryFn: () => api<CaseCounts>('/api/cases/counts'),
+    staleTime: 30_000,
+    refetchInterval: 60_000,
+    retry: false,
+  });
+}
+
+/** True when sign in asks for an authenticator code. Texts about the authenticator are only shown then. False until the answer is known. */
+export function useMfaRequired(): boolean {
+  return !!usePublicConfig().data?.mfaRequired;
 }
 
 // ---- onboarding checklist -----------------------------------------------------------------------------------------

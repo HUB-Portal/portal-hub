@@ -23,6 +23,7 @@ export default function Login() {
   const [busy, setBusy] = useState(false);
 
   const config = usePublicConfig();
+  const mfa = !!config.data?.mfaRequired;
   const demo = useQuery({
     queryKey: ['demo-accounts'],
     queryFn: () => api<DemoAccounts>('/api/demo/accounts', { quiet401: true }),
@@ -49,7 +50,7 @@ export default function Login() {
   }
 
   return (
-    <AuthLayout title="Sign in" intro="Use your work email address and password. You will be asked for a code from your authenticator app next.">
+    <AuthLayout title="Sign in" intro={mfa ? 'Use your work email address and password. You will be asked for a code from your authenticator app next.' : 'Use your work email address and password.'}>
       <form onSubmit={submit} className="stack" noValidate>
         {googleFailed && !error ? <Notice tone="bad">We could not sign you in with Google. Use your email and password, or ask an administrator to check your account.</Notice> : null}
         {error ? <Notice tone="bad">{error}</Notice> : null}
@@ -76,7 +77,7 @@ export default function Login() {
       {demo.data ? (
         <div className="demo-box">
           <strong>Demo accounts</strong>
-          <p className="small muted">Choose one to fill in the form. The current authenticator code is shown so you can continue.</p>
+          <p className="small muted">{mfa ? 'Choose one to fill in the form. The current authenticator code is shown so you can continue.' : 'Choose one to fill in the form.'}</p>
           <div className="demo-list">
             {demo.data.accounts.map((a) => (
               <button key={a.email} type="button" className="demo-item" onClick={() => { setEmail(a.email); setPassword(demo.data!.password); setError(null); }}>
@@ -84,7 +85,7 @@ export default function Login() {
                   <strong>{a.email}</strong>
                   <br /><span className="small muted">{a.orgName}, {a.roles.join(', ')}</span>
                 </span>
-                {a.code ? <span className="mono" aria-label={`Current code ${a.code}`}>{a.code}</span> : null}
+                {mfa && a.code ? <span className="mono" aria-label={`Current code ${a.code}`}>{a.code}</span> : null}
               </button>
             ))}
           </div>

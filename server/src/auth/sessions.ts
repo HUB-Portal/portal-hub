@@ -34,6 +34,24 @@ export function clearSessionCookie(reply: FastifyReply): void {
   reply.clearCookie(config.cookieName, { httpOnly: true, secure: config.isProd, sameSite: 'strict', path: '/' });
 }
 
+/**
+ * The stage a fresh sign in (password, invitation, confirmation link or Google) starts at. With MFA_REQUIRED off the first factor is enough
+ * and the session is `full` at once; otherwise it waits for the authenticator code, or for its setup.
+ */
+export function startStage(mfaEnabled: boolean): SessionStage {
+  if (!config.mfaRequired) return 'full';
+  return mfaEnabled ? 'password' : 'mfa_setup';
+}
+
+/**
+ * A person who signs in without an authenticator (MFA_REQUIRED off) never reaches the enrolment step that normally turns an invited account
+ * 'active', so it is done here.
+ */
+export async function settleSignIn(c: PoolClient, userId: string, stage: SessionStage): Promise<void> {
+  if (stage !== 'full' || config.mfaRequired) return;
+  await c.query(`UPDATE users SET status = CASE WHEN status = 'invited' THEN 'active' ELSE status END, last_login_at = now() WHERE id = $1`, [userId]);
+}
+
 export async function createSession(
   c: PoolClient,
   p: { userId: string; orgId: string; stage: SessionStage; ip?: string | null; userAgent?: string | null; stepUp?: boolean },

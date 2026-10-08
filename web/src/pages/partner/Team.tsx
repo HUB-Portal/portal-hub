@@ -7,6 +7,8 @@ import { PARTNER_ROLES } from '@shared/roles';
 import { formatDate } from '../../lib/format';
 import type { OrgInfo, TeamUser } from '../../lib/types';
 import { Badge, Button, Card, Dialog, Field, Notice, PageHeader, Spinner } from '../../ui/Common';
+import { IfMfa } from '../../ui/IfMfa';
+import { useMfaRequired } from '../../lib/orgApi';
 
 export const ROLE_INFO: Record<string, { label: string; text: string }> = {
   admin: { label: 'Administrator', text: 'Everything, including the team and settings.' },
@@ -41,6 +43,7 @@ export function RolePicker({ value, onChange }: { value: string[]; onChange: (v:
 
 export default function Team() {
   const qc = useQueryClient();
+  const mfa = useMfaRequired();
   const team = useQuery({ queryKey: ['team'], queryFn: () => api<{ users: TeamUser[] }>('/api/team') });
   const org = useQuery({ queryKey: ['org'], queryFn: () => api<OrgInfo>('/api/org') });
   const [invite, setInvite] = useState(false);
@@ -78,7 +81,7 @@ export default function Team() {
                     <td>
                       <Badge tone={u.status === 'active' ? 'good' : u.status === 'invited' ? 'info' : 'bad'}>{u.status === 'active' ? 'Active' : u.status === 'invited' ? 'Invited' : 'Disabled'}</Badge>
                       {u.locked ? <div><Badge tone="warn">Locked</Badge></div> : null}
-                      {u.status === 'active' && !u.mfaEnabled ? <div className="small muted">No authenticator</div> : null}
+                      {mfa && u.status === 'active' && !u.mfaEnabled ? <div className="small muted">No authenticator</div> : null}
                     </td>
                     <td className="nowrap">{u.lastLoginAt ? formatDate(u.lastLoginAt) : 'Never'}</td>
                     <td>
@@ -87,7 +90,7 @@ export default function Team() {
                           {u.status !== 'disabled' ? <Button size="sm" onClick={() => setEditing(u)} aria-label={`Change roles for ${u.name}`}>Roles</Button> : null}
                           {u.status === 'invited' ? <Button size="sm" onClick={() => act.mutate({ id: u.id, action: 'resend-invite' })} aria-label={`Send the invitation again to ${u.name}`}>Resend</Button> : null}
                           {u.locked ? <Button size="sm" onClick={() => act.mutate({ id: u.id, action: 'unlock' })} aria-label={`Unlock ${u.name}`}>Unlock</Button> : null}
-                          {u.status === 'active' ? <Button size="sm" onClick={() => setConfirm({ user: u, action: 'reset-mfa' })} aria-label={`Reset the authenticator for ${u.name}`}>Reset authenticator</Button> : null}
+                          {mfa && u.status === 'active' ? <Button size="sm" onClick={() => setConfirm({ user: u, action: 'reset-mfa' })} aria-label={`Reset the authenticator for ${u.name}`}>Reset authenticator</Button> : null}
                           {u.status === 'disabled'
                             ? <Button size="sm" onClick={() => act.mutate({ id: u.id, action: 'enable' })} aria-label={`Enable ${u.name}`}>Enable</Button>
                             : <Button size="sm" variant="danger" onClick={() => setConfirm({ user: u, action: 'disable' })} aria-label={`Disable ${u.name}`}>Disable</Button>}
@@ -152,7 +155,7 @@ function InviteDialog({ open, onClose, onDone, sites }: { open: boolean; onClose
             ))}
           </fieldset>
         ) : null}
-        <p className="small muted">You will be asked for your authenticator code to confirm.</p>
+        <IfMfa><p className="small muted">You will be asked for your authenticator code to confirm.</p></IfMfa>
         <div className="row-end">
           <Button onClick={onClose}>Cancel</Button>
           <Button type="submit" variant="primary" loading={m.isPending} disabled={!email || !name || roles.length === 0}>Send invitation</Button>

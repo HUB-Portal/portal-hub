@@ -38,6 +38,8 @@ afterAll(async () => {
 });
 
 const portalOf = async (id: string) => (await up.call('GET', `/api/cases/${id}`)).json.case.portal;
+/** The error text is K Line's business: a partner never gets it (usability review of 8 Oct 2026, R3), so tests read it from the database. */
+const lastErrorOf = async (id: string) => (await q<{ e: string | null }>(`SELECT portal_push->>'lastError' AS e FROM cases WHERE id = $1`, [id]))[0]!.e ?? undefined;
 
 /** Creates a direct case through the bulk route and uploads a realistic set of files. */
 async function directCase(pid: string, first: string, last: string, instructions?: string) {
@@ -57,13 +59,11 @@ describe('direct manufacturing bulk intake', () => {
   let batchId: string;
   let ids: Record<string, string> = {};
 
-  it('creates a batch with mandatory names enforced and duplicates refused', async () => {
+  it('creates a batch, refuses a name that is too long and a bad patient ID', async () => {
     const r = await up.call('POST', '/api/bulk/batches', {
       cases: [
         { key: 'a', patientId: '55813', firstName: 'Marc', lastName: 'Alonso', instructions: 'Handle with care' },
         { key: 'b', patientId: '90001', firstName: 'Jan', lastName: 'Kowalski' },
-        { key: 'c', patientId: '70001', firstName: '', lastName: 'Nofirst' },
-        { key: 'd', patientId: '70002', firstName: 'Nolast', lastName: '   ' },
         { key: 'f', patientId: '70003', firstName: 'x'.repeat(51), lastName: 'Long' },
         { key: 'h', patientId: 'bad<id>', firstName: 'Bad', lastName: 'Id' },
       ],
@@ -75,11 +75,8 @@ describe('direct manufacturing bulk intake', () => {
     expect(byKey.a.ref).toMatch(/^ACME-\d{6}$/);
     expect(byKey.a.caseId).toBe('55813');
     expect(byKey.b.id).toBeTruthy();
-    expect(byKey.c.error).toBe('first_name_required');
-    expect(byKey.d.error).toBe('last_name_required');
     expect(byKey.f.error).toBe('name_too_long');
     expect(byKey.h.error).toBe('invalid_patient_id');
-    expect(byKey.c.id).toBeUndefined();
     ids = { a: byKey.a.id, b: byKey.b.id };
 
     // names never travel in clear
@@ -91,6 +88,23 @@ describe('direct manufacturing bulk intake', () => {
     expect(row.patient_bidxs).toHaveLength(2);
     expect(JSON.stringify(row)).not.toMatch(/Marc|Alonso/);
     expect(row).toMatchObject({ partner_case_id: '55813', manufacturing_mode: 'direct', priority: 'rush' });
+
+    // the patient ID and the names are optional: a case with neither is created, reads back as "no name" and goes to the portal under its reference
+    const bare = await up.call('POST', '/api/bulk/batches', { cases: [{ key: 'bare', firstName: '', lastName: '' }, { key: 'half', firstName: 'Solo', lastName: '' }] });
+    expect(bare.status, JSON.stringify(bare.json)).toBe(201);
+    const [bareCase, halfCase] = bare.json.cases as { id?: string; error?: string }[];
+    expect(bareCase!.error).toBeUndefined();
+    expect(halfCase!.error).toBeUndefined();
+    const shown = await up.call('GET', `/api/cases/${bareCase!.id}`);
+    expect(shown.json.case).toMatchObject({ hasPatientName: false, patientName: null, caseId: null });
+    // a name can be added and cleared again while the case is a draft
+    const named = await up.call('PATCH', `/api/cases/${bareCase!.id}`, { firstName: 'Late', lastName: 'Name' });
+    expect(named.status, JSON.stringify(named.json)).toBe(200);
+    expect(named.json.case.patientName).toBe('Late Name');
+    const cleared = await up.call('PATCH', `/api/cases/${bareCase!.id}`, { firstName: '', lastName: '' });
+    expect(cleared.status, JSON.stringify(cleared.json)).toBe(200);
+    expect(cleared.json.case).toMatchObject({ hasPatientName: false, patientName: null });
+    for (const c of [bareCase, halfCase]) expect((await up.call('DELETE', `/api/cases/${c!.id}`)).status).toBe(200);
 
     // a second batch may reuse the patient ID of a direct case; standard cases keep their unique case ID
     const again = await up.call('POST', '/api/bulk/batches', { cases: [{ key: 'z', patientId: '55813', firstName: 'Other', lastName: 'Person' }] });
@@ -107,14 +121,17 @@ describe('direct manufacturing bulk intake', () => {
     expect(dupStd.json.code).toBe('case_id_exists');
   });
 
-  it('shows the batch, masked names, the portal block, and finds cases by name in either order', async () => {
+  it('shows the batch, the names, the portal block, and finds cases by name in either order', async () => {
     const r = await up.call('GET', `/api/bulk/batches/${batchId}`);
     expect(r.status).toBe(200);
     expect(r.json.batch).toMatchObject({ id: batchId, status: 'open', caseCount: 2, priority: 'rush' });
     const a = r.json.cases.find((c: any) => c.id === ids.a);
     expect(a).toMatchObject({ manufacturingMode: 'direct', caseId: '55813', status: 'draft', patientMasked: 'M*** A*****', hasPatientName: true, bulkBatchId: batchId });
     expect(a.portal).toEqual({ status: 'pending', attempts: 0, demo: false });
-    expect(JSON.stringify(r.json)).not.toMatch(/Marc|Alonso/);
+    // the company that uploaded the name sees it in full (usability review of 8 Oct 2026, A1); the masked form is still there, and K Line staff get no clear name
+    expect(a.patientName).toBe('Marc Alonso');
+    const staff = await (await new Client(app).full('admin@kline.demo')).call('GET', `/api/console/cases/${ids.a}`);
+    expect(JSON.stringify(staff.json)).not.toMatch(/Marc|Alonso/);
     for (const term of ['Marc Alonso', 'alonso marc', 'ALONSO, Marc']) {
       const s = await up.call('GET', `/api/cases?search=${encodeURIComponent(term)}`);
       // "ALONSO, Marc" normalises to the same letters as "Alonso Marc"
@@ -205,15 +222,21 @@ describe('pushing to the K Line portal', () => {
     await runDueJobs();
     let p = await portalOf(id);
     expect(p).toMatchObject({ status: 'failed', attempts: 1 });
-    expect(p.lastError).toBe('The K Line portal rejected the request. (HTTP 422)');
-    expect(p.lastError).not.toMatch(/Petra|Novak/);
+    expect(p.lastError).toBeUndefined(); // the partner is not told
+    expect(await lastErrorOf(id)).toBe('The K Line portal rejected the request. (HTTP 422)');
+    expect(await lastErrorOf(id)).not.toMatch(/Petra|Novak/);
     expect(p.caseUuid).toBeUndefined();
     const d = await up.call('GET', `/api/cases/${id}`);
-    const ev = d.json.events.find((e: any) => e.type === 'portal_push_failed');
+    expect(d.json.events.some((e: any) => e.type === 'portal_push_failed')).toBe(false);
+    const ev = (await q(`SELECT data FROM case_events WHERE case_id = $1 AND type = 'portal_push_failed'`, [id]))[0];
     expect(ev.data).toMatchObject({ code: 'validation', status: 422 });
+    // K Line is told once, and the push is tried again by itself later
+    await runDueJobs();
+    expect((await q(`SELECT count(*)::int AS n FROM notifications WHERE kind = 'portal_push_failed' AND data->>'caseId' = $1`, [id]))[0].n).toBe(1);
+    expect((await q(`SELECT run_at > now() AS later FROM jobs WHERE kind = 'bulk.push' AND status = 'queued' AND payload->>'caseId' = $1`, [id]))[0].later).toBe(true);
     expect(JSON.stringify(await q('SELECT payload, last_error, status FROM jobs ORDER BY id DESC LIMIT 3'))).not.toMatch(/Petra|Novak/);
-    // it shows up under attention
-    expect((await up.call('GET', '/api/cases?status=attention')).json.items.map((c: any) => c.id)).toContain(id);
+    // it is not under the partner's attention: there is nothing the partner can do about it
+    expect((await up.call('GET', '/api/cases?status=attention')).json.items.map((c: any) => c.id)).not.toContain(id);
 
     const retry = await up.call('POST', `/api/cases/${id}/portal/retry`, {});
     expect(retry.status).toBe(200);
@@ -239,7 +262,7 @@ describe('pushing to the K Line portal', () => {
     await runDueJobs();
     let p = await portalOf(id);
     expect(p.status).toBe('pending');
-    expect(p.lastError).toBe('The K Line portal had a problem on its side. (HTTP 503)');
+    expect(await lastErrorOf(id)).toBe('The K Line portal had a problem on its side. (HTTP 503)');
     const stored = (await q('SELECT portal_case_uuid, portal_push FROM cases WHERE id = $1', [id]))[0];
     expect(stored.portal_case_uuid).toBeTruthy();
     expect(Object.keys(stored.portal_push.uploads.docs)).toHaveLength(1);
@@ -269,8 +292,10 @@ describe('pushing to the K Line portal', () => {
     }
     const p = await portalOf(id);
     expect(p).toMatchObject({ status: 'failed', attempts: 5 });
-    expect((await q(`SELECT status FROM jobs WHERE kind = 'bulk.push' ORDER BY id DESC LIMIT 1`))[0].status).toBe('failed');
-    expect((await up.call('GET', `/api/cases/${id}`)).json.events.filter((e: any) => e.type === 'portal_push_failed')).toHaveLength(1);
+    expect((await q(`SELECT count(*)::int AS n FROM jobs WHERE kind = 'bulk.push' AND status = 'failed' AND payload->>'caseId' = $1`, [id]))[0].n).toBe(1);
+    expect((await q(`SELECT count(*)::int AS n FROM case_events WHERE case_id = $1 AND type = 'portal_push_failed'`, [id]))[0].n).toBe(1);
+    // the Hub keeps trying by itself, later
+    expect((await q(`SELECT run_at > now() AS later FROM jobs WHERE kind = 'bulk.push' AND status = 'queued' AND payload->>'caseId' = $1`, [id]))[0].later).toBe(true);
     fake.clearFailures();
     expect((await up.call('POST', `/api/cases/${id}/portal/retry`, {})).status).toBe(200);
     await runDueJobs();
@@ -291,7 +316,8 @@ describe('pushing to the K Line portal', () => {
       await runDueJobs();
       const p = await portalOf(id);
       expect(p.status).toBe('failed');
-      expect(p.lastError).toBe(FIXED_NOT_SET_UP);
+      expect(await lastErrorOf(id)).toBe(FIXED_NOT_SET_UP);
+      expect(p.lastError).toBeUndefined();
       expect(p.demo).toBe(false);
       expect(p.caseUuid).toBeUndefined();
       const detail = (await up.call('GET', `/api/cases/${id}`)).json;

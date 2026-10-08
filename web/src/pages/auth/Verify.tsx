@@ -6,10 +6,12 @@ import { homeFor, useAuth } from '../../lib/auth';
 import { Button, Field, Notice, Spinner } from '../../ui/Common';
 import { AuthLayout } from './AuthLayout';
 import { PASSWORD_HINT } from './ResetPassword';
+import { useMfaRequired } from '../../lib/orgApi';
 
 interface VerifyInfo { email: string; name: string; orgName?: string; valid?: boolean }
 
 export default function Verify() {
+  const mfa = useMfaRequired();
   const [params] = useSearchParams();
   const token = params.get('token') ?? '';
   const nav = useNavigate();
@@ -59,7 +61,7 @@ export default function Verify() {
   return (
     <AuthLayout
       title="Confirm your email address"
-      intro={`${first ? `Hello ${first}. ` : ''}Choose a password for ${info.data.email}. Next you will set up your authenticator app. After that, K Line reviews your company.`}
+      intro={`${first ? `Hello ${first}. ` : ''}Choose a password for ${info.data.email}.${mfa ? ' Next you will set up your authenticator app.' : ''} After that, K Line reviews your company.`}
     >
       <form onSubmit={submit} className="stack">
         {error ? <Notice tone="bad">{error}</Notice> : null}

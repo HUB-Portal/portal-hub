@@ -5,6 +5,7 @@ import { KLINE_API_SCOPES } from '@shared/roles';
 import { api, errorText } from '../../lib/api';
 import { formatDate, formatDateTime } from '../../lib/format';
 import { Badge, Button, Card, Dialog, Empty, Field, Notice, PageHeader, Spinner } from '../../ui/Common';
+import { IfMfa } from '../../ui/IfMfa';
 
 interface ServiceKey {
   id: string;
@@ -88,7 +89,7 @@ export default function ServiceKeys() {
         onClose={() => setRevoking(null)}
         footer={<><Button onClick={() => setRevoking(null)}>Keep it</Button><Button variant="danger" loading={revoke.isPending} onClick={() => revoking && revoke.mutate(revoking)}>Revoke key</Button></>}
       >
-        <p>{revoking?.name} stops working straight away. Anything using it must be given a new key. You will be asked for your authenticator code.</p>
+        <p>{revoking?.name} stops working straight away. Anything using it must be given a new key.<IfMfa> You will be asked for your authenticator code.</IfMfa></p>
       </Dialog>
     </div>
   );
@@ -134,7 +135,7 @@ function CreateKey({ open, onClose, onCreated }: { open: boolean; onClose: () =>
         <Field label="Valid for (days)" hint="Between 1 and 730 days." error={days && !daysOk ? 'Enter a whole number from 1 to 730.' : null}>
           {(f) => <input {...f} type="number" min={1} max={730} value={days} onChange={(e) => setDays(e.target.value)} required />}
         </Field>
-        <p className="small muted">You will be asked for your authenticator code. The key is shown once.</p>
+        <p className="small muted"><IfMfa>You will be asked for your authenticator code. </IfMfa>The key is shown once.</p>
         <div className="row-end">
           <Button onClick={onClose}>Cancel</Button>
           <Button type="submit" variant="primary" loading={m.isPending} disabled={!name.trim() || scopes.length === 0 || !!badCidr || !daysOk}>Create key</Button>

@@ -570,8 +570,10 @@ describe('packaging, checks, dates and geography', () => {
     expect(ok).toMatchObject({ ok: true, patientId: '55813' });
     expect(validateBulkEntry({ key: 'k', firstName: 'a', lastName: 'b' })).toMatchObject({ ok: true, patientId: null }); // the patient ID is optional now
     expect(validateBulkEntry({ key: 'k', patientId: '', firstName: 'a', lastName: 'b' })).toMatchObject({ ok: true, patientId: null });
-    expect(validateBulkEntry({ key: 'k', patientId: '1', firstName: '', lastName: 'b' })).toMatchObject({ ok: false, error: 'first_name_required' });
-    expect(validateBulkEntry({ key: 'k', patientId: '1', firstName: 'a', lastName: '  ' })).toMatchObject({ ok: false, error: 'last_name_required' });
+    // the names are optional (review of 8 Oct 2026)
+    expect(validateBulkEntry({ key: 'k', patientId: '1', firstName: '', lastName: 'b' })).toMatchObject({ ok: true, first: '', last: 'b' });
+    expect(validateBulkEntry({ key: 'k', patientId: '1', firstName: 'a', lastName: '  ' })).toMatchObject({ ok: true, first: 'a', last: '' });
+    expect(validateBulkEntry({ key: 'k', firstName: '', lastName: '' })).toMatchObject({ ok: true, patientId: null });
     expect(validateBulkEntry({ key: 'k', patientId: '1', firstName: 'a'.repeat(51), lastName: 'b' })).toMatchObject({ ok: false, error: 'name_too_long' });
     expect(validateBulkEntry({ key: 'k', patientId: 'bad<id>', firstName: 'a', lastName: 'b' })).toMatchObject({ ok: false, error: 'invalid_patient_id' });
   });

@@ -7,6 +7,8 @@ import { formatDate } from '../../lib/format';
 import type { TeamUser } from '../../lib/types';
 import { Badge, Button, Card, Dialog, Field, Notice, PageHeader, Spinner } from '../../ui/Common';
 import { ROLE_INFO } from '../partner/Team';
+import { IfMfa } from '../../ui/IfMfa';
+import { useMfaRequired } from '../../lib/orgApi';
 
 interface StaffUser extends TeamUser { siteIds?: string[]; siteCodes?: string[] }
 
@@ -42,6 +44,7 @@ function RoleFields({ roles, setRoles, siteIds, setSiteIds, sites }: { roles: st
 
 export default function Staff() {
   const qc = useQueryClient();
+  const mfa = useMfaRequired();
   const q = useQuery({ queryKey: ['staff'], queryFn: () => api<{ users: StaffUser[] }>('/api/staff') });
   const sites = useSites();
   const [invite, setInvite] = useState(false);
@@ -81,7 +84,7 @@ export default function Staff() {
                     <td>
                       <Badge tone={u.status === 'active' ? 'good' : u.status === 'invited' ? 'info' : 'bad'}>{u.status === 'active' ? 'Active' : u.status === 'invited' ? 'Invited' : 'Disabled'}</Badge>
                       {u.locked ? <div><Badge tone="warn">Locked</Badge></div> : null}
-                      {u.status === 'active' && !u.mfaEnabled ? <div className="small muted">No authenticator</div> : null}
+                      {mfa && u.status === 'active' && !u.mfaEnabled ? <div className="small muted">No authenticator</div> : null}
                     </td>
                     <td className="nowrap">{u.lastLoginAt ? formatDate(u.lastLoginAt) : 'Never'}</td>
                     <td>
@@ -90,7 +93,7 @@ export default function Staff() {
                           {u.status === 'invited' ? <Button size="sm" onClick={() => act.mutate({ id: u.id, action: 'resend-invite' })} aria-label={`Send the invitation again to ${u.name}`}>Resend</Button> : null}
                           {u.status !== 'disabled' ? <Button size="sm" onClick={() => setEditing(u)} aria-label={`Change roles for ${u.name}`}>Roles</Button> : null}
                           {u.locked ? <Button size="sm" onClick={() => act.mutate({ id: u.id, action: 'unlock' })} aria-label={`Unlock ${u.name}`}>Unlock</Button> : null}
-                          {u.status === 'active' ? <Button size="sm" onClick={() => setConfirm({ user: u, action: 'reset-mfa' })} aria-label={`Reset the authenticator for ${u.name}`}>Reset authenticator</Button> : null}
+                          {mfa && u.status === 'active' ? <Button size="sm" onClick={() => setConfirm({ user: u, action: 'reset-mfa' })} aria-label={`Reset the authenticator for ${u.name}`}>Reset authenticator</Button> : null}
                           {u.status === 'disabled'
                             ? <Button size="sm" onClick={() => act.mutate({ id: u.id, action: 'enable' })} aria-label={`Enable ${u.name}`}>Enable</Button>
                             : <Button size="sm" variant="danger" onClick={() => setConfirm({ user: u, action: 'disable' })} aria-label={`Disable ${u.name}`}>Disable</Button>}
@@ -142,7 +145,7 @@ function InviteDialog({ open, onClose, onDone, sites }: { open: boolean; onClose
         <Field label="Full name">{(p) => <input {...p} value={name} onChange={(e) => setName(e.target.value)} required maxLength={120} autoComplete="off" />}</Field>
         <Field label="Email address" hint="We send them a link to choose a password.">{(p) => <input {...p} type="email" value={email} onChange={(e) => setEmail(e.target.value)} required autoComplete="off" />}</Field>
         <RoleFields roles={roles} setRoles={setRoles} siteIds={siteIds} setSiteIds={setSiteIds} sites={sites} />
-        <p className="small muted">You will be asked for your authenticator code to confirm.</p>
+        <IfMfa><p className="small muted">You will be asked for your authenticator code to confirm.</p></IfMfa>
         <div className="row-end">
           <Button onClick={onClose}>Cancel</Button>
           <Button type="submit" variant="primary" loading={m.isPending} disabled={!email || !name || roles.length === 0}>Send invitation</Button>
@@ -167,7 +170,7 @@ function RolesDialog({ user, sites, onClose, onDone }: { user: StaffUser | null;
       <div className="stack">
         {error ? <Notice tone="bad">{error}</Notice> : null}
         <RoleFields roles={roles} setRoles={setRoles} siteIds={siteIds} setSiteIds={setSiteIds} sites={sites} />
-        <p className="small muted">They are signed out everywhere when their roles change. You will be asked for your authenticator code.</p>
+        <p className="small muted">They are signed out everywhere when their roles change.<IfMfa> You will be asked for your authenticator code.</IfMfa></p>
         <div className="row-end">
           <Button onClick={onClose}>Cancel</Button>
           <Button variant="primary" loading={m.isPending} disabled={roles.length === 0} onClick={() => m.mutate()}>Save roles</Button>

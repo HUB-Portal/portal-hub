@@ -114,7 +114,8 @@ describe('upload, checks and submit', () => {
     expect(caseA.patientMasked).toBe('M*** A*****');
     expect(caseA.hasPatientName).toBe(true);
     expect(caseA.status).toBe('draft');
-    expect(JSON.stringify(r.json)).not.toContain('Alonso');
+    // the company that uploaded the name sees it in full (usability review of 8 Oct 2026); it is encrypted at rest
+    expect(caseA.patientName).toBe('Marc Alonso');
     const row = (await q('SELECT patient_enc, notes_enc, patient_bidx FROM cases WHERE id = $1', [caseA.id]))[0];
     expect(row.patient_enc).toMatch(/^f1\./);
     expect(row.notes_enc).toMatch(/^f1\./);
@@ -335,7 +336,9 @@ describe('instructions', () => {
 describe('patient names, downloads and the access log', () => {
   it('logs every name reveal and file download and shows K Line access to the partner', async () => {
     const list = await up.call('GET', '/api/cases');
-    expect(JSON.stringify(list.json)).not.toMatch(/Marc|Alonso/);
+    expect(list.json.items.find((c: any) => c.id === caseA.id).patientName).toBe('Marc Alonso');
+    // K Line staff never get the clear name in a list
+    expect(JSON.stringify((await intake.call('GET', '/api/console/cases')).json)).not.toMatch(/Marc|Alonso/);
 
     const reveal = await up.call('POST', `/api/cases/${caseA.id}/reveal-name`, {});
     expect(reveal.status).toBe(200);

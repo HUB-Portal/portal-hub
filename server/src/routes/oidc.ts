@@ -2,7 +2,7 @@ import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { config } from '../config';
 import { audit } from '../audit';
 import { SYSTEM, one, tx } from '../db';
-import { createSession, revokeSession, setSessionCookie } from '../auth/sessions';
+import { createSession, revokeSession, setSessionCookie, settleSignIn, startStage } from '../auth/sessions';
 import { OIDC_FLOW_MINUTES, OidcError, exchangeCode, hashValue, startFlow, verifyGoogleIdToken } from '../auth/oidc';
 import { safeEqual } from '../crypto/keys';
 import { clientIp, userAgent } from '../http/util';
@@ -100,14 +100,16 @@ async function handleCallback(
     }
     if (!u.oidc_subject) await c.query('UPDATE users SET oidc_subject = $2 WHERE id = $1', [u.id, claims.sub]);
 
-    // Fixed decision 4: Google is only the first factor. A session made here is never `full`; the authenticator code (or its setup) comes next.
-    const stage: 'password' | 'mfa_setup' = u.mfa_enabled ? 'password' : 'mfa_setup';
+    // Fixed decision 4: Google is only the first factor, so with MFA_REQUIRED on the session made here is never `full`: the authenticator
+    // code (or its setup) comes next. While MFA_REQUIRED is off (8 Oct 2026) the Google sign in alone gives a full session.
+    const stage = startStage(u.mfa_enabled);
     if (previous) await revokeSession(c, previous, 'replaced');
     const s = await createSession(c, { userId: u.id, orgId: u.org_id, stage, ip: clientIp(req), userAgent: userAgent(req) });
     await audit(c, {
       actorType: 'user', actorId: u.id, orgId: u.org_id, action: 'auth.google_ok',
       ip: clientIp(req), userAgent: userAgent(req), details: { method: 'google', stage },
     });
+    await settleSignIn(c, u.id, stage);
     return { ok: true as const, stage, session: s };
   });
 
@@ -116,5 +118,5 @@ async function handleCallback(
   }
   clearFlowCookie(reply);
   setSessionCookie(reply, outcome.session.token, outcome.session.expiresAt);
-  return reply.redirect(outcome.stage === 'password' ? '/mfa' : '/mfa-setup', 302);
+  return reply.redirect(outcome.stage === 'full' ? '/' : outcome.stage === 'password' ? '/mfa' : '/mfa-setup', 302);
 }

@@ -5,6 +5,7 @@ import { Plus, Trash2 } from 'lucide-react';
 import { BAG_LIMITS, BAG_TOKENS, DEFAULT_BAG_LAYOUT, layoutProblems, printsPersonalData, renderBags, type BagLayout as Layout } from '@shared/bag';
 import { api, ApiError, errorText } from '../../lib/api';
 import { Button, Card, Field, Notice, PageHeader, Spinner, Toggle } from '../../ui/Common';
+import { IfMfa } from '../../ui/IfMfa';
 
 const TOKEN_HELP: Record<string, string> = {
   brand: 'Brand name',
@@ -74,7 +75,7 @@ export function BagEditor({ layout, onChange, readOnly, footer }: { layout: Layo
     <div className="stack">
       {personal ? (
         <Notice tone="warn" title="This layout prints patient data on the bag">
-          Bags travel with the aligners and can be seen by people outside the clinic. Only keep patient names or initials here if you have a good reason and your patients know. Saving asks for your authenticator code.
+          Bags travel with the aligners and can be seen by people outside the clinic. Only keep patient names or initials here if you have a good reason and your patients know.<IfMfa> Saving asks for your authenticator code.</IfMfa>
         </Notice>
       ) : null}
       <div className="grid-2">

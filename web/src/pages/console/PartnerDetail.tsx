@@ -13,6 +13,7 @@ import { Badge, Button, Card, Dialog, Empty, Field, Notice, PageHeader, Spinner,
 import { RolePicker } from '../partner/Team';
 import { PartnerStatus, SignupBadges } from './Partners';
 import { Gate } from './Console';
+import { IfMfa } from '../../ui/IfMfa';
 
 export { AGREEMENT_KINDS };
 const kindLabel = agreementLabel;
@@ -431,7 +432,7 @@ function DeclineDialog({ open, partner, onClose, onDone }: { open: boolean; part
         <Field label="Reason (optional)" hint="For your team only. It is stored internally and is not sent to the registrant.">
           {(f) => <textarea {...f} rows={3} maxLength={500} value={reason} onChange={(e) => setReason(e.target.value)} />}
         </Field>
-        <p className="small muted">You will be asked for your authenticator code.</p>
+        <IfMfa><p className="small muted">You will be asked for your authenticator code.</p></IfMfa>
         <div className="row-end">
           <Button onClick={onClose}>Cancel</Button>
           <Button type="submit" variant="danger" loading={m.isPending}>{confirmed ? 'Decline registration' : 'Decline and delete'}</Button>
@@ -486,7 +487,7 @@ function InviteUserDialog({ open, partner, onClose, onDone }: { open: boolean; p
         <Field label="Full name">{(f) => <input {...f} value={name} onChange={(e) => setName(e.target.value)} required maxLength={120} autoComplete="off" />}</Field>
         <Field label="Email address" hint="We send them a link to choose a password.">{(f) => <input {...f} type="email" value={email} onChange={(e) => setEmail(e.target.value)} required autoComplete="off" />}</Field>
         <RolePicker value={roles} onChange={setRoles} />
-        <p className="small muted">You will be asked for your authenticator code.</p>
+        <IfMfa><p className="small muted">You will be asked for your authenticator code.</p></IfMfa>
         <div className="row-end">
           <Button onClick={onClose}>Cancel</Button>
           <Button type="submit" variant="primary" loading={m.isPending} disabled={!email || !name || roles.length === 0}>Send invitation</Button>
@@ -612,7 +613,7 @@ function AgreementsCard({ p, onDone, onError }: CardProps) {
         onClose={() => setRemoving(null)}
         footer={<><Button onClick={() => setRemoving(null)}>Keep it</Button><Button variant="danger" loading={del.isPending} onClick={() => removing && del.mutate(removing)}>Remove</Button></>}
       >
-        <p>{removing ? kindLabel(removing.kind) : ''}. If this is the only one of its kind, uploads or transfers that depend on it stop working. The record stays in the audit log. You will be asked for your authenticator code.</p>
+        <p>{removing ? kindLabel(removing.kind) : ''}. If this is the only one of its kind, uploads or transfers that depend on it stop working. The record stays in the audit log.<IfMfa> You will be asked for your authenticator code.</IfMfa></p>
       </Dialog>
     </Card>
   );
@@ -645,7 +646,7 @@ function AddAgreement({ partnerId, open, onClose, onDone }: { partnerId: string;
         </div>
         <Field label="Reference (optional)" hint="Contract number or document name.">{(f) => <input {...f} value={reference} maxLength={120} onChange={(e) => setReference(e.target.value)} />}</Field>
         <Field label="Notes (optional)">{(f) => <textarea {...f} rows={3} value={notes} maxLength={500} onChange={(e) => setNotes(e.target.value)} />}</Field>
-        <p className="small muted">You will be asked for your authenticator code.</p>
+        <IfMfa><p className="small muted">You will be asked for your authenticator code.</p></IfMfa>
         <div className="row-end">
           <Button onClick={onClose}>Cancel</Button>
           <Button type="submit" variant="primary" loading={m.isPending} disabled={!signedAt}>Record agreement</Button>
