@@ -229,7 +229,7 @@ describe('richer Acme demo data', () => {
     expect(claims[0]).toMatchObject({ status: 'closed', resolution: 'remake', rework_kind: 'rework', priority: 'rush' });
     expect(claims[0].claim_id).toBeTruthy();
     expect(claims[1]).toMatchObject({ status: 'in_review', rework_case_id: null });
-    const k = await new Client(app).full('quality@kline.demo');
+    const k = await new Client(app).full('admin@kline.demo');
     const ov = await (await new Client(app).full('admin@kline.demo')).call('GET', '/api/console/overview');
     expect(ov.json.openClaims).toBe(1);
     expect((await k.call('GET', '/api/claims')).status).toBe(200);
@@ -284,7 +284,7 @@ describe('richer Acme demo data', () => {
     const admin = await new Client(app).full('admin@acme.demo');
     const list = await admin.call('GET', '/api/cases?pageSize=100');
     expect(list.json.items).toHaveLength(18);
-    const kl = await (await new Client(app).full('intake@kline.demo')).call('GET', '/api/console/cases?pageSize=100');
+    const kl = await (await new Client(app).full('admin@kline.demo')).call('GET', '/api/console/cases?pageSize=100');
     expect(kl.status).toBe(200);
     expect(kl.json.total).toBeGreaterThanOrEqual(18);
   });

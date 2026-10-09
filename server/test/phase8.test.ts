@@ -608,7 +608,6 @@ describe('sending the case address with direct manufacturing cases', () => {
 describe('who may change the company logo', () => {
   let quality: Client;
   let finance: Client;
-  let intake: Client;
   const userId = async (email: string) => (await q(`SELECT id FROM users WHERE lower(email) = $1`, [email]))[0].id as string;
   const logoOf = async (orgId: string) => (await q(`SELECT logo_file_id FROM organizations WHERE id = $1`, [orgId]))[0].logo_file_id as string | null;
   const emailJobs = async () => (await q(`SELECT count(*)::int AS n FROM jobs WHERE kind = 'email.send'`))[0].n as number;
@@ -618,14 +617,14 @@ describe('who may change the company logo', () => {
   beforeAll(async () => {
     quality = await new Client(app).full('quality@acme.demo');
     finance = await new Client(app).full('finance@acme.demo');
-    intake = await new Client(app).full('intake@kline.demo');
   });
 
-  it('grants org.logo to admin, uploader, quality and finance only', async () => {
-    const { ROLE_PERMISSIONS } = await import('../../shared/roles');
+  it('grants org.logo to admin, uploader, quality and finance only among partner roles', async () => {
+    const { ROLE_PERMISSIONS, KLINE_ROLES } = await import('../../shared/roles');
     for (const role of ['admin', 'uploader', 'quality', 'finance'] as const) expect(ROLE_PERMISSIONS[role], role).toContain('org.logo');
     expect(ROLE_PERMISSIONS.viewer).not.toContain('org.logo');
-    for (const role of ['kl_intake', 'kl_production', 'kl_quality', 'kl_finance'] as const) expect(ROLE_PERMISSIONS[role], role).not.toContain('org.logo');
+    // K Line has the single all permissions administrator role
+    expect([...KLINE_ROLES]).toEqual(['kl_admin']);
     // org.edit is still only for administrators
     for (const role of ['uploader', 'quality', 'finance', 'viewer'] as const) expect(ROLE_PERMISSIONS[role], role).not.toContain('org.edit');
   });
@@ -654,7 +653,7 @@ describe('who may change the company logo', () => {
     expect((await viewer.call('POST', '/api/org/logo', { fileId: mine.fileId })).status).toBe(403);
     expect((await viewer.call('DELETE', '/api/org/logo')).status).toBe(403);
     // K Line staff use the console, not these routes
-    for (const c of [klAdmin, intake]) {
+    for (const c of [klAdmin]) {
       expect((await c.call('POST', '/api/uploads', { purpose: 'logo', name: 'k.png', size: LOGO_PNG.length })).status).toBe(403);
       expect((await c.call('POST', '/api/org/logo', { fileId: mine.fileId })).status).toBe(403);
       expect((await c.call('DELETE', '/api/org/logo')).status).toBe(403);

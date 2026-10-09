@@ -1,13 +1,13 @@
 # Portal Hub: guide for partner staff
 
-Welcome. This guide is for the people at your company who send cases to K Line: uploaders, quality staff, finance staff and administrators. It is written in plain language. Menu names in **bold** match the menu in the Hub.
+Welcome. This guide is for the people at your company who send cases to K Line: members, quality staff, finance staff and administrators. It is written in plain language. Menu names in **bold** match the menu in the Hub.
 
 What you see depends on your role. If a menu item is missing, your role does not include it. Ask an administrator in your company.
 
 | Role | What it is for |
 |---|---|
-| Admin | Everything for your company: team, profile, integrations, all cases. |
-| Uploader | Sends and manages cases, reads claims and the specification, declares material shipments. |
+| Admin | Everything for your company: team, profile, all cases. |
+| Member | Sends and manages cases, reads claims and the specification, declares material shipments. |
 | Quality | Reports and follows quality claims, edits and signs the production specification. Administrators must first switch **Quality claims** and **Production spec** on for the company (see "Menu visibility for admins"), otherwise the Quality role does not see them in the menu. |
 | Finance | Reads cases and exports reports (no patient names). |
 | Viewer | Reads cases, claims, specification and materials. Cannot change anything, including the company logo. |
@@ -26,7 +26,7 @@ The Hub is not a long term archive. K Line removes case files and patient names 
 
 In the Hub, open **Cases** and use the filters **Submitted**, **Production** and **Shipped**. Each case shows the four step progress bar, the carrier, the tracking number and the number of aligners shipped.
 
-To feed your ERP you have three choices (under **ERP and API**):
+To feed your ERP you have three choices (under **ERP and API**). The partner API and webhooks need an API key or a webhook, and no company role can create those in the Hub at the moment. If your system needs them, ask your K Line contact.
 
 * **CSV exports.** Choose a period and download `shipments.csv` (one row for every case shipped in that period) or `cases.csv`. Finance staff can do this.
 * **The partner API.** `GET /api/v1/shipments?from=2026-09-01&to=2026-09-30` returns the cases shipped in a period, with the number of aligners shipped, which is usually what you invoice. `GET /api/v1/cases?updated_since=...` returns cases that changed since your last check.
@@ -80,7 +80,7 @@ If you never confirm your email address, the registration is deleted after 7 day
 
 ### Approval by K Line
 
-Until K Line approves your company, you can sign in, fill in your company profile, add logos and documents, read and propose the production specification and use your account. These are locked until approval: sending case files, material shipments, team invites, API keys and webhooks. The **Overview** shows a getting started list:
+Until K Line approves your company, you can sign in, fill in your company profile, add logos and documents, read and propose the production specification and use your account. These are locked until approval: sending case files, material shipments and team invites. The **Overview** shows a getting started list:
 
 1. Secure your account (an administrator has an authenticator app).
 2. Complete your company profile (legal name, VAT ID for EU countries, address, at least one contact).
@@ -100,7 +100,7 @@ Everyone uses two steps: your password, then a six digit code from an authentica
 2. **Every time:** enter your email and password, then the current code from the app.
 3. **Lost your phone?** Use a recovery code instead of the app code. Then make new codes under **Account**. If you have no codes, ask an administrator in your company to reset your authenticator. You then set it up again.
 4. **Wrong codes:** wrong codes are counted for you across all your sign ins. Five wrong codes in 15 minutes lock your account for 15 minutes (the lock doubles each time, up to 24 hours) and sign you out everywhere; signing in again with your password does not give you new tries. Five wrong passwords lock your account in the same way. A correct code clears the count. An administrator in your company can unlock you on the **Team** page (**Unlock**), and **Forgot your password?** also lifts the lock.
-5. **Sensitive actions** (creating API keys, inviting people, signing the specification and similar) ask for a fresh code. It then counts for 10 minutes.
+5. **Sensitive actions** (inviting people, signing the specification and similar) ask for a fresh code. It then counts for 10 minutes.
 6. You are signed out after 30 minutes of doing nothing, and after 12 hours in any case.
 
 Forgot your password? Choose **Forgot your password?** on the sign in page. The link works for 60 minutes.
@@ -122,11 +122,11 @@ You need these details for every case:
 4. A case is blocked until the first name and last name are both there. Names can be at most 50 characters. You can change the names in the row.
 5. Open a row to check its files. Each STL (3D model) and PTS (trim line) needs an arch (upper or lower) and a step. Fix any that the Hub could not read. You can switch a file off. Instructions are read from a text or Word file (`.txt`, `.md`, `.rtf`, `.docx`) in the folder, and you can edit them. At most 8,000 characters. Old `.doc` files are not read.
 6. Set the brand, then start. The Hub creates the cases, uploads the files and checks them. Keep the page open. If the connection drops, it carries on where it stopped. With the automatic option it submits the clean cases. Cases with problems stay drafts for your review.
-7. Watch **Batch result** for each case. The Hub then sends each submitted case to the K Line customer portal. If that fails you see an error with a **Retry** action. If the portal connection is not set up (**Portal connection**, for administrators) the push fails with a clear message.
+7. Watch **Batch result** for each case. The Hub then sends each submitted case to the K Line customer portal. If that fails you see an error with a **Retry** action. If your portal connection is not set up, the push fails with a clear message. Ask K Line to set it up.
 
 Every direct manufacturing case is sent with a **case address**. It is the address of the person who sent the case (their own, see **Account**, **Case address**) when that person has saved one, and otherwise your company's address (see **Company profile**). If neither is complete, the Hub tells you before you upload anything ("Add your case address in the company profile, then press Try again."). The K Line portal does not allow the address of a submitted direct case to be changed, so changing an address later does not change cases that were already sent.
 
-Direct manufacturing needs the **Portal connection** (administrators): the portal address, API key and user ID that K Line gave you. Saving asks for your authenticator code. Use **Test connection** to check it.
+Direct manufacturing needs a portal connection: the portal address, API key and user ID of your company in the K Line customer portal. K Line sets this up for you and tests it. You do not need to do anything in the Hub.
 
 Nothing is silently corrected. If the Hub finds something odd, it tells you and waits for your decision.
 
@@ -242,7 +242,7 @@ The address used for a direct manufacturing case is the one of the person who **
 
 Every company must have a logo. Everyone in your company sees it in the top bar after signing in, next to the company name. Until you add one, a banner reminds you on every page, and K Line cannot approve your company.
 
-**Who can change it:** every team member except viewers (administrators, uploaders, quality and finance). Open **Company profile** and use **Choose logo**, **Replace logo** or **Remove logo** on the **Company logo** card. Viewers can see the logo but not change it. The old logo file is deleted when you replace it. Every change is written to your **Access log** with the name of the person, and your administrators get a notification in the bell ("Name changed the company logo"). Brand logos stay with administrators.
+**Who can change it:** every team member except viewers (administrators, members, quality and finance). Open **Company profile** and use **Choose logo**, **Replace logo** or **Remove logo** on the **Company logo** card. Viewers can see the logo but not change it. The old logo file is deleted when you replace it. Every change is written to your **Access log** with the name of the person, and your administrators get a notification in the bell ("Name changed the company logo"). Brand logos stay with administrators.
 
 * **Format:** PNG (best, with a transparent background), SVG (plain shapes only, no scripts) or JPG.
 * **File size:** at most 2 MB.
@@ -265,10 +265,9 @@ This only changes what the menu shows. What each person can do still depends on 
 
 ## ERP and API
 
-Administrators (and finance for exports) find **ERP and API** in the menu. Everything here is also described for developers in `docs/integration/PARTNER_API.md`.
+Roles that can export (administrators and finance) find **ERP and API** in the menu. Everything here is also described for developers in `docs/integration/PARTNER_API.md`.
 
-* **API keys.** Create a key for each system. Choose only the scopes it needs: read cases, write cases, read patient names (think twice: this exposes names), read claims, read materials. You can limit a key to certain IP addresses and set an expiry of up to 730 days. The key is shown once. Copy it straight into your secret store. You can have 20 active keys. Revoke a key at any time.
-* **Webhooks.** Add the web address your system listens on (it must be `https`) and choose the events. The Hub signs each message so you can check it is genuine. The secret is shown once. Use **Send test** to check your endpoint. Failed messages are retried over about a day, and a webhook that keeps failing is switched off and you are told. The delivery history shows what was sent.
+* **API keys and webhooks.** Creating API keys and webhooks needs the permission `integration.manage`, which no company role has at the moment. The **API keys** and **Webhooks** tabs are therefore not shown to anyone in your company.
 * **Exports.** Download `cases.csv` and `shipments.csv` for a period. Patient names are left out unless you tick the box, which needs the right permission and a fresh authenticator code. The export is then logged as a bulk name reveal.
 * Webhook messages never contain patient names, notes, reasons or file names. They carry references and counts. For a direct manufacturing case created without a case ID, the case ID in a message is empty; if you sent one, treat it as personal data in your own logs.
 

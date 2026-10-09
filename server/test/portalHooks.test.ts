@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { Writable } from 'node:stream';
 import type { FastifyInstance } from 'fastify';
+import { ROLE_PERMISSIONS } from '../../shared/roles';
 import { CSRF_EXEMPT, buildApp, isCsrfExempt } from '../src/app';
 import { SYSTEM, closePools, tx } from '../src/db';
 import { seedDemo } from '../src/demo/seed';
@@ -32,6 +33,10 @@ const LEAK = 'Fernsby';
 const PATIENT_IN_MESSAGE = `Hedwig ${LEAK}`;
 
 beforeAll(async () => {
+  // Partner administrators no longer hold integration.manage in production (nobody can reach the Portal connection or its
+  // receiver). The feature code stays, so the tests grant the permission to the partner administrator role for this run.
+  // Permissions are evaluated per request (auth/context.ts), so this takes effect at once.
+  if (!ROLE_PERMISSIONS.admin.includes('integration.manage')) ROLE_PERMISSIONS.admin.push('integration.manage');
   await seedDemo({ force: true });
   app = await buildApp({ logStream: new Writable({ write: (chunk, _e, cb) => { logs.push(String(chunk)); cb(); } }) });
   await app.ready();

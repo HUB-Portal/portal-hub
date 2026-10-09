@@ -2,6 +2,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { createHmac, randomUUID } from 'node:crypto';
 import { Writable } from 'node:stream';
 import type { FastifyInstance } from 'fastify';
+import { ROLE_PERMISSIONS } from '../../shared/roles';
 import { buildApp } from '../src/app';
 import { SYSTEM, closePools, tx } from '../src/db';
 import { seedDemo } from '../src/demo/seed';
@@ -27,7 +28,6 @@ let af: Client;
 let av: Client;
 let contoso: Client;
 let klAdmin: Client;
-let intake: Client;
 let svcKey: string;
 let main: Receiver; // the partner's endpoint for the main flow
 const fake = new FakePortalClient();
@@ -99,6 +99,11 @@ async function readyCase(name = NAME) {
 }
 
 beforeAll(async () => {
+  // Partner administrators no longer hold integration.manage in production (nobody can reach API keys, webhooks or the Portal
+  // connection). The feature code stays, so the tests grant the permission to the partner administrator role for this run.
+  // Permissions are evaluated per request (auth/context.ts, notify.ts, webhookDelivery.ts), so the grant also steers who is
+  // told when an endpoint is switched off.
+  if (!ROLE_PERMISSIONS.admin.includes('integration.manage')) ROLE_PERMISSIONS.admin.push('integration.manage');
   await seedDemo({ force: true });
   app = await buildApp({ logStream: new Writable({ write: (_c, _e, cb) => cb() }) });
   await app.ready();
@@ -114,7 +119,6 @@ beforeAll(async () => {
   av = await new Client(app).full('viewer@acme.demo');
   contoso = await new Client(app).full('admin@contoso.demo');
   klAdmin = await new Client(app).full('admin@kline.demo');
-  intake = await new Client(app).full('intake@kline.demo');
   const k = await klAdmin.call('POST', '/api/service-keys', { name: 'Phase 6 factory system', scopes: ['mes:intake', 'mes:files', 'mes:events'], expiresInDays: 30 });
   svcKey = k.json.key;
   main = await startReceiver();
@@ -768,9 +772,9 @@ describe('events from the real flows', () => {
     // submitted
     const x = await readyCase();
     // on hold, released, routed again
-    expect((await intake.call('POST', `/api/cases/${x.id}/hold`, { reason: 'Quimby reason text, please check' })).status).toBe(200);
-    expect((await intake.call('POST', `/api/cases/${x.id}/release`, {})).status).toBe(200);
-    expect((await intake.call('POST', `/api/cases/${x.id}/route`, { siteCode: 'PT-CHV' })).status).toBe(200);
+    expect((await klAdmin.call('POST', `/api/cases/${x.id}/hold`, { reason: 'Quimby reason text, please check' })).status).toBe(200);
+    expect((await klAdmin.call('POST', `/api/cases/${x.id}/release`, {})).status).toBe(200);
+    expect((await klAdmin.call('POST', `/api/cases/${x.id}/route`, { siteCode: 'PT-CHV' })).status).toBe(200);
     // acknowledged by the factory, then stage, shipped
     expect((await api(app, svcKey, 'POST', `/api/mes/v1/cases/${x.ref}/ack`, { mes_case_id: 'MES-' + x.ref })).json).toMatchObject({ ok: true });
     const at = () => new Date(Date.now() - 1000).toISOString();
@@ -1003,20 +1007,19 @@ describe('email notices', () => {
   it('says a case is on hold without the reason, and mails the people who act on claims, specifications and low stock', async () => {
     const c = await routedCase();
     const before = await snap();
-    expect((await intake.call('POST', `/api/cases/${c.id}/hold`, { reason: 'Quimby reason text, secret detail' })).status).toBe(200);
+    expect((await klAdmin.call('POST', `/api/cases/${c.id}/hold`, { reason: 'Quimby reason text, secret detail' })).status).toBe(200);
     await drain();
     const hold = (await since(before)).filter((m) => m.subject === `Case ${c.ref} is on hold`);
     expect(hold).toHaveLength(5);
     expect(hold[0].body).toContain('See the reason in the platform.');
     for (const m of hold) expect(m.body).not.toMatch(/Quimby|secret detail/);
 
-    // K Line side: the claim of the main flow and the proposed specification reached K Line staff who can act on them
-    const claim = await mailbox(`subject LIKE 'Update on claim CLM-%' AND to_addr = 'quality@kline.demo'`);
+    // K Line side: the claim of the main flow and the proposed specification reached the K Line administrator, who can act on them
+    const claim = await mailbox(`subject LIKE 'Update on claim CLM-%' AND to_addr = 'admin@kline.demo'`);
     expect(claim.length).toBeGreaterThan(0);
     const claimId = (await q(`SELECT id FROM claims ORDER BY created_at LIMIT 1`))[0].id;
     expect(claim[0].body).toContain(`${PUBLIC_URL}/console/claims/${claimId}`);
     expect(claim[0].body).not.toMatch(/Quimby|scratched/);
-    expect(await mailbox(`subject LIKE 'Update on claim%' AND to_addr = 'finance@kline.demo'`)).toHaveLength(0); // no claim rights
     const spec = await mailbox(`subject = 'A production specification is waiting for your signature' AND to_addr = 'admin@kline.demo'`);
     expect(spec.length).toBeGreaterThan(0);
     expect(spec[0].body).toMatch(new RegExp(`${PUBLIC_URL}/console/specs/${acmeId}/[0-9a-f-]{36}`));

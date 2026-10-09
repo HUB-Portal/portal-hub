@@ -45,7 +45,7 @@ Data subjects: patients of the partner companies; users (partner staff and K Lin
 
 ### 2.4 Recipients and locations
 
-Hosting in Germany (Hetzner) [confirm]. An SMTP provider for emails [provider, location to confirm]. Backup storage [location to confirm]. K Line staff at the intake, quality and production roles. Factory sites per routing. For direct cases, the K Line customer portal. No analytics, advertising or other third party sees any data from the browser.
+Hosting in Germany (Hetzner) [confirm]. An SMTP provider for emails [provider, location to confirm]. Backup storage [location to confirm]. K Line staff (all administrators). Factory sites per routing. For direct cases, the K Line customer portal. No analytics, advertising or other third party sees any data from the browser.
 
 ## 3. Necessity and proportionality
 
@@ -94,7 +94,7 @@ Scale: likelihood and severity are Low, Medium or High, judged for the risk to p
 
 **Measures.** Names are encrypted with row bound additional data, masked on screen (`M*** A*****`) and revealed one case at a time by an action that writes `case.name_revealed` to the partner's access log, including every K Line reveal. API access to names needs the separate scope `patients:read` and is logged (`case.names_revealed` per page). Exports with names need `case.reveal_name` plus a fresh step up and are logged. The factory feed and webhooks never contain names. K Line searches by name and views of a case are logged to the partner.
 
-**Gaps.** Production staff (`kl_production`) hold `case.reveal_name` and can reveal names at factory sites, although production does not need them [decision, see `OPEN_DECISIONS.md`]. Bag print files can contain names when the partner's layout allows it (audited). **Residual: Medium** until the production role question is decided.
+**Gaps.** Every K Line account is an administrator (`kl_admin`) and holds `case.reveal_name`, so anyone at a factory site who is given an account can reveal names, although production does not need them [decision, see `OPEN_DECISIONS.md`]. Bag print files can contain names when the partner's layout allows it (audited). **Residual: Medium** until the question of who at the factory sites gets an account is decided.
 
 ### R3. Account takeover
 
@@ -195,7 +195,7 @@ Before real patient data is processed:
 1. Legal and Compliance review this set of drafts and set the legal bases.
 2. Sign DPAs with partners and confirm the sub-processor list and their agreements.
 3. Complete the transfer impact assessments and SCCs for each non EEA site in use.
-4. Close or accept the gaps in `OPEN_DECISIONS.md` (production role and names, erasure process, free text, audit anchoring).
+4. Close or accept the gaps in `OPEN_DECISIONS.md` (K Line account rights and names, erasure process, free text, audit anchoring).
 5. Commission an independent penetration test (see `../SECURITY.md`).
 6. Test the breach runbook with an exercise.
 7. Review this DPIA again after the first 6 months of production use or after a major change.

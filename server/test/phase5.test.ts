@@ -16,7 +16,6 @@ let app: FastifyInstance;
 let acmeId: string;
 let klineId: string;
 let klAdmin: Client;
-let intake: Client;
 let acmeAdmin: Client;
 let acmeUp: Client;
 let acmeQuality: Client;
@@ -130,7 +129,6 @@ beforeAll(async () => {
   fabrikamId = await orgIdOf('FDL');
   await createDemoUser(acmeId, 'viewer@acme.demo', 'Vic Viewer', ['viewer']);
   klAdmin = await new Client(app).full('admin@kline.demo');
-  intake = await new Client(app).full('intake@kline.demo');
   acmeAdmin = await new Client(app).full('admin@acme.demo');
   acmeUp = await new Client(app).full('upload@acme.demo');
   acmeQuality = await new Client(app).full('quality@acme.demo');
@@ -603,9 +601,8 @@ describe('K Line review', () => {
     const acme = await klAdmin.call('GET', `/api/partners/${acmeId}`);
     expect(acme.json.signup).toBeNull();
     expect(acme.json.gates).toMatchObject({ dpaOnFile: true, emailConfirmed: true, canActivate: true });
-    // partners and other staff roles cannot read it
+    // partners cannot read it
     expect((await acmeAdmin.call('GET', `/api/partners/${contosoId}`)).status).toBe(403);
-    expect((await intake.call('GET', `/api/partners/${contosoId}`)).status).toBe(403);
     expect((await acmeAdmin.call('GET', '/api/partners?tab=review')).status).toBe(403);
   });
 
@@ -647,7 +644,6 @@ describe('K Line review', () => {
     expect((await klAdmin.call('POST', '/api/partners', { ...body, code: 'NEWCO', siteCodes: ['XX-NOPE'] })).json.code).toBe('invalid_site');
     expect((await klAdmin.call('POST', '/api/partners', { ...body, code: 'NEWCO', name: 'www.spam.com' })).status).toBe(400);
     // only K Line administrators of partners may do this
-    expect((await intake.call('POST', '/api/partners', { ...body, code: 'NEWCO' })).status).toBe(403);
     expect((await acmeAdmin.call('POST', '/api/partners', { ...body, code: 'NEWCO' })).status).toBe(403);
 
     // invite a user
@@ -683,7 +679,6 @@ describe('K Line review', () => {
     await q(`INSERT INTO cases (org_id, ref, partner_case_id) VALUES ($1, 'CC2-000001', 'D-1')`, [id]);
     expect((await klAdmin.call('PATCH', `/api/partners/${id}/code`, { code: 'CC3' })).json.code).toBe('has_cases');
     expect((await klAdmin.call('PATCH', `/api/partners/${'00000000-0000-4000-8000-000000000000'}/code`, { code: 'ZZ9' })).status).toBe(404);
-    expect((await intake.call('PATCH', `/api/partners/${id}/code`, { code: 'CC4' })).status).toBe(403);
     expect((await q(`SELECT details FROM audit_log WHERE org_id = $1 AND action = 'partner.code_changed'`, [id]))[0].details).toEqual({ from: 'CCHANGE', to: 'CC2' });
   });
 });
@@ -698,7 +693,6 @@ describe('declining a registration', () => {
     expect(r.status).toBe(403);
     expect(r.json.code).toBe('step_up_required');
     expect((await orgOf((await q(`SELECT email FROM users WHERE org_id = $1`, [orgId]))[0].email)).signup.declined_at).toBeUndefined();
-    expect((await intake.call('POST', `/api/partners/${orgId}/decline`, {})).status).toBe(403);
     expect((await acmeAdmin.call('POST', `/api/partners/${orgId}/decline`, {})).status).toBe(403);
   });
 
@@ -837,7 +831,6 @@ describe('company profile permissions', () => {
       ['finance', acmeFinance, 200, 403, true],
       ['viewer', acmeViewer, 200, 403, false],
       ['kl_admin', klAdmin, 403, 403, false],
-      ['kl_intake', intake, 403, 403, false],
     ];
     for (const [role, c, read, write, logoOk] of roles) {
       expect((await c.call('GET', '/api/org/profile')).status, `${role} GET profile`).toBe(read);
@@ -978,7 +971,7 @@ describe('brands, logos and documents', () => {
     const seen = await klAdmin.call('GET', `/api/partners/${contosoId}/logo`);
     expect(seen.status).toBe(200);
     expect(seen.res.rawPayload.equals(LOGO_PNG)).toBe(true);
-    expect((await intake.call('GET', `/api/partners/${contosoId}/logo`)).status).toBe(403);
+    expect((await acmeAdmin.call('GET', `/api/partners/${contosoId}/logo`)).status).toBe(403);
     // Acme has its own (seeded) logo, which is a different file
     const acmeSeen = await klAdmin.call('GET', `/api/partners/${acmeId}/logo`);
     expect(acmeSeen.status).toBe(200);

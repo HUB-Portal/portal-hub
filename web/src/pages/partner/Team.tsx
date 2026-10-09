@@ -12,15 +12,11 @@ import { useMfaRequired } from '../../lib/orgApi';
 
 export const ROLE_INFO: Record<string, { label: string; text: string }> = {
   admin: { label: 'Administrator', text: 'Everything, including the team and settings.' },
-  uploader: { label: 'Uploader', text: 'Sends files and works on cases.' },
+  uploader: { label: 'Member', text: 'Sends files and works on cases.' },
   quality: { label: 'Quality', text: 'Reviews cases, files and specifications.' },
   finance: { label: 'Finance', text: 'Sees cases and exports for invoicing.' },
   viewer: { label: 'Viewer', text: 'Can look but not change anything.' },
   kl_admin: { label: 'K Line administrator', text: 'Everything, including staff, sites, partners and the factory link.' },
-  kl_intake: { label: 'K Line intake', text: 'Checks new cases, sends them to a site and puts them on hold.' },
-  kl_production: { label: 'K Line production', text: 'Sees cases at their sites and updates production stages.' },
-  kl_quality: { label: 'K Line quality', text: 'Reviews claims and specifications.' },
-  kl_finance: { label: 'K Line finance', text: 'Sees cases and exports for invoicing.' },
 };
 
 export function RolePicker(props: { value: string[]; onChange: (v: string[]) => void }) {

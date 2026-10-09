@@ -8,7 +8,7 @@ Base URL: the address of your Hub, for example `https://hub.example.com`. Every 
 
 ## Quick start
 
-1. A company administrator opens **ERP and API** in the Hub, chooses **API keys** and creates a key with the scopes the integration needs. The key is shown once. Copy it into your secret store.
+1. Get a key with the scopes the integration needs. Creating keys needs the permission `integration.manage`, which no partner role has at the moment, so ask your K Line contact. The key is shown once. Copy it into your secret store.
 2. Call the API with the key:
    ```bash
    curl -s https://hub.example.com/api/v1/cases?page_size=5 \
@@ -24,7 +24,7 @@ Send the key in the `Authorization` header on every request: `Authorization: Bea
 * The key is shown once when it is created. The Hub stores only a keyed hash, so a lost key cannot be recovered: create a new one and revoke the old one.
 * **Expiry**: 1 to 730 days, 365 by default. An expired key answers `401 invalid_api_key`. Create the replacement before it expires and switch over.
 * **IP allow list** (optional): up to 20 addresses or CIDR ranges, IPv4 or IPv6 (`203.0.113.7`, `203.0.113.0/24`, `2001:db8::/32`). A request from any other address is refused with the same `401 invalid_api_key` as a wrong key. Behind a proxy, make sure the Hub sees the real client address.
-* Revoke a key in the Hub at any time (administrators, with an authenticator code). It stops working at once. You can have 20 active keys per company. Key creation and revocation are in your company's access log; the list shows when and from which address each key was last used (updated at most once a minute).
+* A key can be revoked at any time (needs `integration.manage`, with an authenticator code). It stops working at once. You can have 20 active keys per company. Key creation and revocation are in your company's access log; the list shows when and from which address each key was last used (updated at most once a minute).
 * Keys are for your systems only. They never work on K Line's internal interfaces, and K Line's own service keys never work here.
 
 ### Scopes
@@ -350,7 +350,7 @@ export async function uploadFile(caseKey, path, name) {
 
 ## Webhooks
 
-Webhooks tell your system when something changes, so you do not have to poll. An administrator creates them in the Hub under **ERP and API, Webhooks**: an `https` address, the events you want, an optional description. The secret (`whsec_...`) is shown once at creation and again only when it is rotated. Up to 10 webhooks per company. Use **Send test** to check your endpoint before real events arrive.
+Webhooks tell your system when something changes, so you do not have to poll. They are created in the Hub under **ERP and API, Webhooks** by someone with `integration.manage` (no partner role has it at the moment): an `https` address, the events you want, an optional description. The secret (`whsec_...`) is shown once at creation and again only when it is rotated. Up to 10 webhooks per company. Use **Send test** to check your endpoint before real events arrive.
 
 ### Events
 
@@ -451,7 +451,7 @@ def verify_kline_webhook(raw_body: bytes, header: str, secret: str, tolerance: i
 
 * Your endpoint has **10 seconds** to answer. Any `2xx` counts as delivered. Anything else counts as failed: other status codes, timeouts, connection or certificate errors. **Redirects are not followed** (a `301` or `302` is a failure): give the final address.
 * Failed deliveries are retried after **1, 5, 30, 120, 360, 720 and 1440 minutes**: 8 attempts in all, then the delivery is marked `dead`. Every attempt has a fresh signature timestamp; the delivery id and the body stay the same.
-* After **25 failed attempts in a row** the webhook is switched off. Your administrators get a notice in the Hub and an email. Fix the endpoint, switch the webhook back on, and resend missed events from the delivery history. A success resets the count.
+* After **25 failed attempts in a row** the webhook is switched off. The people with `integration.manage` get a notice in the Hub and an email. Fix the endpoint, switch the webhook back on, and resend missed events from the delivery history. A success resets the count.
 * The delivery history (status, attempts, last status code, a short fixed-text error, the exact payload) is kept for 90 days, with a **Retry** button per delivery.
 * Events from one company are not guaranteed to arrive in order, especially after retries: use `created_at` and the current state of the case (`GET /api/v1/cases/{ref}`) when order matters. Answer `2xx` for events you do not care about.
 * Your endpoint must be reachable from the public internet over https with a valid certificate. For your protection and ours the Hub refuses to connect to private or internal addresses: loopback, private ranges (10.x, 172.16 to 31.x, 192.168.x), link-local and cloud metadata (169.254.x), carrier-grade NAT (100.64 to 127.x), multicast and reserved ranges, and IPv6 equivalents. Host names are resolved again at every connection, so a name that later points to an internal address is refused as well. Addresses with a user name or password, and plain `http`, are not accepted. On a developer's own test installation (never in production) `http://localhost` is allowed.

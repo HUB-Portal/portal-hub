@@ -26,7 +26,6 @@ let quality: Client;
 let finance: Client;
 let contoso: Client; // another partner's administrator
 let klAdmin: Client;
-let klIntake: Client;
 let svcKey: string;
 let partnerKey: string;
 
@@ -44,7 +43,6 @@ beforeAll(async () => {
   finance = await new Client(app).full('finance@acme.demo');
   contoso = await new Client(app).full('owner@contoso.demo');
   klAdmin = await new Client(app).full('admin@kline.demo');
-  klIntake = await new Client(app).full('intake@kline.demo');
   const k = await klAdmin.call('POST', '/api/service-keys', { name: 'Erasure test factory', scopes: ['mes:intake', 'mes:files', 'mes:events'], expiresInDays: 30 });
   svcKey = k.json.key;
   partnerKey = (await tx({ orgId: acmeId, bypass: false }, (c) => createApiKey(c, { orgId: acmeId, orgKind: 'partner', name: 'erase test', scopes: ['cases:read', 'cases:write'], expiresInDays: 30 }))).key;
@@ -60,9 +58,9 @@ const erase = (c: Client, id: string, confirmRef: string) => c.call('POST', `/ap
 const caseRow = async (id: string) => (await q('SELECT * FROM cases WHERE id = $1', [id]))[0];
 
 describe('who may erase', () => {
-  it('needs the case.erase permission: uploaders, quality, finance and K Line intake are refused, and so are API keys and anonymous calls', async () => {
+  it('needs the case.erase permission: uploaders, quality and finance are refused, and so are API keys and anonymous calls', async () => {
     const k = await readyStandardCase(uploader, { patientName: NAME, instructions: INSTRUCTION_MARK });
-    for (const who of [uploader, quality, finance, klIntake]) {
+    for (const who of [uploader, quality, finance]) {
       const r = await erase(who, k.id, k.ref);
       expect(r.status, JSON.stringify(r.json)).toBe(403);
     }
@@ -207,7 +205,7 @@ describe('what an erasure does', () => {
     const adminNotes = await q(`SELECT n.title, n.body, n.data FROM notifications n JOIN users u ON u.id = n.user_id WHERE n.kind = 'case_erased' AND n.data->>'caseId' = $1 AND u.email = 'admin@acme.demo'`, [k.id]);
     expect(adminNotes.length).toBe(1);
     expect(adminNotes[0].body).toBe(`Case ${k.ref}`);
-    // the case was ready at a factory site, so K Line intake is told too (by a job)
+    // the case was ready at a factory site, so K Line is told too (by a job)
     await runDueJobs();
     const klNotes = await q(`SELECT n.title, n.body FROM notifications n JOIN organizations o ON o.id = n.org_id WHERE o.kind = 'kline' AND n.kind = 'case_erased' AND n.data->>'caseId' = $1`, [k.id]);
     expect(klNotes.length).toBe(1);
@@ -278,9 +276,6 @@ describe('what an erasure does', () => {
     expect(mine.actorLabel).toBe('K Line staff'); // the partner sees K Line staff, not a name
     expect(mine.ip).toBeNull(); // the partner does not see K Line's address
     expect((await q(`SELECT count(*)::int AS n FROM notifications n JOIN users u ON u.id = n.user_id WHERE n.kind = 'case_erased' AND n.data->>'caseId' = $1 AND u.email = 'admin@acme.demo'`, [k.id]))[0].n).toBe(1);
-    // K Line intake and production staff cannot, only administrators
-    const other = await readyStandardCase(uploader);
-    expect((await erase(klIntake, other.id, other.ref)).status).toBe(403);
   });
 });
 

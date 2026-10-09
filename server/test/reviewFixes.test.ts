@@ -14,7 +14,6 @@ import { Client, PNG_BYTES, cubeStl, laserCsv, minimalPdf, trimLine } from './he
 let app: FastifyInstance;
 let up: Client;
 let kl: Client;
-let intake: Client;
 const fake = new FakePortalClient();
 
 const q = <T = any>(sql: string, params: unknown[] = []) => tx(SYSTEM, async (c) => (await c.query(sql, params)).rows as T[]);
@@ -25,7 +24,6 @@ beforeAll(async () => {
   await app.ready();
   up = await new Client(app).full('upload@acme.demo');
   kl = await new Client(app).full('admin@kline.demo');
-  intake = await new Client(app).full('intake@kline.demo');
   setPortalClientFactory(() => fake);
 });
 
@@ -78,11 +76,7 @@ describe('what a partner sees of a case', () => {
     expect(listed.portal.lastError).toBeUndefined();
     const staff = (await kl.call('GET', `/api/console/cases/${id}`)).json.case;
     expect(staff.portal.lastError).toMatch(/portal settings/);
-    // only an administrator reads the text: other K Line staff learn that the hand over failed, and not why
-    const other = (await intake.call('GET', `/api/console/cases/${id}`)).json.case;
-    expect(other.portal.status).toBe('failed');
-    expect(other.portal.lastError).toBeUndefined();
-    expect(other.portal.syncError).toBeUndefined();
+    expect(staff.portal.status).toBe('failed');
   });
 
   it('lets a case with errors and warnings be submitted: nothing in the checks stops it', async () => {

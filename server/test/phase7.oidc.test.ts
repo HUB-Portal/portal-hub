@@ -257,7 +257,10 @@ describe('Google sign in flow', () => {
     // Google-only staff member who has not set up an authenticator yet, and a disabled one
     const klineId = await orgIdOf('KLINE');
     await q(`INSERT INTO users (org_id, email, name, roles, status, auth_provider) VALUES ($1, $2, 'Gina Google', '{kl_admin}', 'invited', 'google')`, [klineId, `gina@${DOMAIN}`]);
-    await createDemoUser(klineId, `gone@${DOMAIN}`, 'Gone Away', ['kl_intake']);
+    await createDemoUser(klineId, `gone@${DOMAIN}`, 'Gone Away', ['kl_admin']);
+    // two more K Line administrators with an authenticator, besides admin@kline.demo
+    await createDemoUser(klineId, `second@${DOMAIN}`, 'Second Admin', ['kl_admin']);
+    await createDemoUser(klineId, `third@${DOMAIN}`, 'Third Admin', ['kl_admin']);
     await q(`UPDATE users SET status = 'disabled' WHERE email = $1`, [`gone@${DOMAIN}`]);
   });
   beforeEach(() => {
@@ -326,13 +329,12 @@ describe('Google sign in flow', () => {
   });
 
   it('remembers the Google account id at the first sign in and refuses a different one afterwards', async () => {
-    const b1 = await begin({ sub: 'sub-intake', email: `intake@${DOMAIN}` });
-    // the demo accounts use kline.demo, so this user exists already
+    const b1 = await begin({ sub: 'sub-second', email: `second@${DOMAIN}` });
     expect((await callback(b1.state, b1.authCode, b1.flowCookie)).headers.location).toBe('/mfa');
-    expect((await q(`SELECT oidc_subject FROM users WHERE email = 'intake@kline.demo'`))[0].oidc_subject).toBe('sub-intake');
-    const b2 = await begin({ sub: 'sub-intake', email: `intake@${DOMAIN}` });
+    expect((await q(`SELECT oidc_subject FROM users WHERE email = 'second@kline.demo'`))[0].oidc_subject).toBe('sub-second');
+    const b2 = await begin({ sub: 'sub-second', email: `second@${DOMAIN}` });
     expect((await callback(b2.state, b2.authCode, b2.flowCookie)).headers.location).toBe('/mfa');
-    const b3 = await begin({ sub: 'sub-someone-else', email: `intake@${DOMAIN}` });
+    const b3 = await begin({ sub: 'sub-someone-else', email: `second@${DOMAIN}` });
     failedRedirect(await callback(b3.state, b3.authCode, b3.flowCookie));
   });
 
@@ -345,13 +347,13 @@ describe('Google sign in flow', () => {
   });
 
   it('never creates a full session: the authenticator comes next, whatever the setting says', async () => {
-    const b = await begin({ sub: 'sub-quality', email: `quality@${DOMAIN}` });
+    const b = await begin({ sub: 'sub-third', email: `third@${DOMAIN}` });
     const res = await callback(b.state, b.authCode, b.flowCookie);
     expect(res.headers.location).toBe('/mfa');
     const session = cookieOf(res, 'kph_session')!;
     expect((await app.inject({ method: 'GET', url: '/api/auth/me', headers: { cookie: `kph_session=${session}` } })).json().stage).toBe('password');
     // No session created by a Google sign in is ever at stage full.
-    const s = await q(`SELECT count(*)::int AS n FROM sessions WHERE stage = 'full' AND user_id = (SELECT id FROM users WHERE email = 'quality@kline.demo') AND created_at > now() - interval '1 minute'`);
+    const s = await q(`SELECT count(*)::int AS n FROM sessions WHERE stage = 'full' AND user_id = (SELECT id FROM users WHERE email = 'third@kline.demo') AND created_at > now() - interval '1 minute'`);
     expect(s[0].n).toBe(0);
   });
 

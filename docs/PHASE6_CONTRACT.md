@@ -16,7 +16,7 @@ Migration 001 had `api_keys` but **no webhook tables** (the first draft said it 
 
 ## 1. API keys (partner side)
 
-All routes: partner people only, session only (API keys and K Line staff get `403`, even K Line administrators who hold `integration.manage`). Permission `integration.manage` (partner `admin`). Reading is open to a company that is not approved yet; creating needs an approved company (`403 org_not_approved`).
+All routes: partner people only, session only (API keys and K Line staff get `403`, even K Line administrators who hold `integration.manage`). Permission `integration.manage`, which no partner role holds at the moment (the partner `admin` no longer has it), so these routes and the pages below are closed to partner users for now. Reading is open to a company that is not approved yet; creating needs an approved company (`403 org_not_approved`).
 
 * `GET /api/api-keys` returns
   ```

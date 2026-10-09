@@ -42,12 +42,12 @@ BASE=http://localhost:4000
 |---|---|---|
 | 1. Sign in and two factors | 1 | upload@acme.demo |
 | 2. Direct manufacturing: send cases | 5 | upload@acme.demo |
-| 3. K Line intake, route, hold, release | 3 | intake@kline.demo |
+| 3. K Line intake, route, hold, release | 3 | admin@kline.demo |
 | 4. Factory system events | 2 | terminal, then the partner view |
-| 5. Claim and rework | 2 | admin@acme.demo (switch the menu items on), quality@acme.demo, quality@kline.demo |
-| 6. Specification signing | 2 | quality@acme.demo, quality@kline.demo |
-| 7. Materials | 1 | admin@acme.demo, chaves@kline.demo |
-| 8. API key and webhook | 1.5 | admin@acme.demo |
+| 5. Claim and rework | 2 | admin@acme.demo (switch the menu items on), quality@acme.demo, admin@kline.demo |
+| 6. Specification signing | 2 | quality@acme.demo, admin@kline.demo |
+| 7. Materials | 1 | admin@acme.demo, admin@kline.demo |
+| 8. Partner API and Portal connection | 1.5 | terminal, admin@kline.demo |
 | 9. Registration and approval | 1.5 | admin@kline.demo |
 | 10. Audit chain and security points | 1 | admin@kline.demo |
 
@@ -89,7 +89,7 @@ Say: "Four steps are all a partner needs to see. Every name reveal is logged."
 
 ## 3. K Line intake: route, hold, release (3 minutes)
 
-Click: switch to the K Line window. Sign in as `intake@kline.demo`. Open **Intake**.
+Click: switch to the K Line window. Sign in as `admin@kline.demo`. Open **Intake**.
 
 Say: "K Line sees what is waiting, what is on hold and what is ready."
 
@@ -158,7 +158,7 @@ Click: sign out and sign in as `quality@acme.demo` (or reload its window). Open 
 
 Say: "Claims are tied to specific aligners and defects, with evidence, and can cite clauses of the signed specification."
 
-Click: K Line window, sign in as `quality@kline.demo`. Open **Quality claims**, open the claim, choose **Start review**, write a message. Choose the decision **Accepted** with the resolution **Remake**. Add a root cause and a corrective action.
+Click: K Line window, sign in as `admin@kline.demo`. Open **Quality claims**, open the claim, choose **Start review**, write a message. Choose the decision **Accepted** with the resolution **Remake**. Add a root cause and a corrective action.
 
 Say: "Accepting a remake creates a rush rework case in one step. The files are not uploaded again: the new case points at the same encrypted bytes."
 
@@ -176,38 +176,31 @@ Click: open version 2. Show the **hash check**: "Your browser worked out the sam
 
 Say: "The browser recomputes the SHA-256 of the exact text. If anyone changed the text after signing, this badge turns red."
 
-Click: K Line window. `quality@kline.demo`, **Partner specs**, open Acme, open version 2 and sign as K Line. Version 2 becomes active and version 1 is superseded. New cases now carry version 2.
+Click: K Line window. `admin@kline.demo`, **Partner specs**, open Acme, open version 2 and sign as K Line. Version 2 becomes active and version 1 is superseded. New cases now carry version 2.
 
 ## 7. Materials (1 minute)
 
 Click: Acme `admin@acme.demo`, **Materials**. Show the box and bag items, the usage rules, stock per site, days of cover and the low stock marker. Choose **Declare a shipment**, pick Chaves, add quantities and declare.
 
-Click: K Line window, `chaves@kline.demo` (a production user tied to Chaves), **Partner materials**, open the shipment and receive it with one quantity lower than declared.
+Click: K Line window, `admin@kline.demo`, **Partner materials**, open the shipment and receive it with one quantity lower than declared.
 
 Say: "K Line counts what arrives. A difference shows as a discrepancy, and stock is booked with the counted quantity. The shipped case from part 4 already deducted its materials."
 
-## 8. API key and webhook test (1.5 minutes)
+## 8. Partner API and Portal connection (1.5 minutes)
 
-Click: Acme `admin@acme.demo`, **ERP and API**, **API keys**, **Create a key**. Name it "Demo ERP", tick only `cases:read`, create it (enter a fresh code). Copy the key from the one time box.
+Click: in the terminal, use the demo partner key for Acme that the seed wrote (`MYKEY`, see the start of this script). Partner administrators do not create API keys in the Hub at the moment, so this step uses the seeded key.
 
 ```bash
-MYKEY=kph_...            # paste the key you just created (the seed also wrote a demo partner key, see the start of this script)
 curl -s "$BASE/api/v1/shipments?from=2026-09-01&to=2026-09-30" -H "Authorization: Bearer $MYKEY"
 ```
 
 (Change the dates to the current month if you run the demo on another day.)
 
-Say: "This is how a partner feeds their ERP for invoicing: the shipments in a period, with aligners shipped. No patient names without the separate patients:read scope. A lost key cannot be shown again."
+Say: "This is how a partner feeds their ERP for invoicing: the shipments in a period, with aligners shipped. No patient names without the separate patients:read scope."
 
-Click: **Webhooks**, **Add a webhook**. In a second terminal start a tiny receiver:
+Click: K Line window, `admin@kline.demo`, **Portal connection**. Open Acme.
 
-```bash
-node -e "require('http').createServer((q,s)=>{let b='';q.on('data',d=>b+=d);q.on('end',()=>{console.log(q.headers['x-kph-event'],q.headers['x-kph-signature']);console.log(b);s.end('ok')})}).listen(9000)"
-```
-
-Use the address `http://localhost:9000/hook` (plain http to localhost is allowed only in development), tick the shipped event, save (fresh code), copy the secret. Choose **Send test**.
-
-Say: "Every message is signed so the partner can prove it came from the Hub. Real addresses must be https, and the Hub refuses private or internal addresses, even if a name is later pointed at one."
+Say: "K Line sets up each partner's connection to the K Line customer portal. The API key is stored encrypted and never shown again, and every change is recorded in the partner's access log."
 
 ## 9. Registration and approval (1.5 minutes)
 

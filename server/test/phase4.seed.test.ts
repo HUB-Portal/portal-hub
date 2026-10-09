@@ -29,7 +29,7 @@ describe('phase 4 demo data', () => {
     expect(active.json.spec.version).toBe(1);
     expect(active.json.spec.contentHash).toBe(await hashSpec(active.json.spec.content));
     expect(active.json.spec.partnerSignature.name).toBe('Quinn Quality');
-    expect(active.json.spec.klineSignature.name).toBe('Quentin Quality');
+    expect(active.json.spec.klineSignature.name).toBe('Katrin Admin');
     const org = await q(`SELECT settings->'bag' AS bag FROM organizations WHERE code = 'ACME'`);
     expect(org[0].bag).toEqual(active.json.spec.content.bag);
 
@@ -43,23 +43,23 @@ describe('phase 4 demo data', () => {
 
   it('can sign the proposed version 2 and switch over', async () => {
     const aq = await new Client(app).full('quality@acme.demo');
-    const kq = await new Client(app).full('quality@kline.demo');
+    const klAdmin = await new Client(app).full('admin@kline.demo');
     const v2 = (await aq.call('GET', '/api/specs')).json.items.find((s: any) => s.version === 2);
     expect(v2.actions.sign).toBe(true);
     const diff = await aq.call('GET', `/api/specs/${v2.id}/diff/${(await aq.call('GET', '/api/specs/active')).json.spec.id}`);
     expect(diff.json.changeCount).toBe(2);
-    expect((await kq.call('POST', `/api/specs/${v2.id}/sign`, {})).json.spec.status).toBe('proposed');
+    expect((await klAdmin.call('POST', `/api/specs/${v2.id}/sign`, {})).json.spec.status).toBe('proposed');
     const done = await aq.call('POST', `/api/specs/${v2.id}/sign`, {});
     expect(done.json.spec.status).toBe('active');
     expect((await aq.call('GET', '/api/specs')).json.items.map((s: any) => s.status)).toEqual(['active', 'superseded']);
   });
 
   it('shows the seeded shipment to K Line receiving', async () => {
-    const chaves = await new Client(app).full('chaves@kline.demo');
-    const r = await chaves.call('GET', '/api/console/material-shipments?status=in_transit');
+    const klAdmin = await new Client(app).full('admin@kline.demo');
+    const r = await klAdmin.call('GET', '/api/console/material-shipments?status=in_transit');
     expect(r.json.total).toBe(1);
     expect(r.json.items[0]).toMatchObject({ siteCode: 'PT-CHV', orgName: 'Acme Aligners', status: 'in_transit' });
-    const ov = await (await new Client(app).full('admin@kline.demo')).call('GET', '/api/console/overview');
+    const ov = await klAdmin.call('GET', '/api/console/overview');
     expect(ov.json.openClaims).toBe(1); // the seeded claim that is in review
   });
 });

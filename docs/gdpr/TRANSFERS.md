@@ -95,7 +95,7 @@ A TIA is required by clause 14 of the SCCs: the parties assess whether the laws 
 **Gaps to weigh in every TIA**
 
 * Instruction text is passed on as written and may contain names.
-* The site's staff may hold `case.reveal_name` (role `kl_production`) and bag print files can contain names if the partner's layout asks for it. Decide whether to restrict this for non EEA sites.
+* The site's staff may hold `case.reveal_name` (every K Line account is an administrator and holds it) and bag print files can contain names if the partner's layout asks for it. Decide whether to restrict this for non EEA sites.
 * The Hub cannot control what the factory system does with files after download: retention, backups, local copies, remote support access.
 
 ### 4.1 Egypt (site EG-CFZ)
@@ -136,7 +136,7 @@ The code treats the United States as a country without adequacy, so US sites nee
 2. SCCs (or another valid tool) signed and recorded for each EEA partner whose cases may go there.
 3. TIA done for the country, with a decision and a review date.
 4. Partner's DPA lists the site country and entity as a sub-processor location, or the partner has agreed in another way.
-5. Decision on names: production role permission, bag files, instructions.
-6. Site user accounts created with the production role and the right site.
+5. Decision on names: who at the site gets a K Line account (every K Line account can reveal names), bag files, instructions.
+6. Site staff who need a K Line account identified (every K Line account is an administrator and sees every case, not only the site's).
 7. Service key for the factory system created with only the scopes it needs, an expiry and an IP allow list.
 8. Transfer gate tested with a real partner record in a test environment.

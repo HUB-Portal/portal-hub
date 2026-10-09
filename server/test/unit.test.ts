@@ -12,7 +12,7 @@ import {
 import { csrfFor, randomToken, sha256Hex } from '../src/crypto/tokens';
 import { generateApiKey, ipAllowed, isApiKeyFormat, permissionsForScopes } from '../src/auth/apikeys';
 import { redactUrl } from '../src/http/util';
-import { ALL_ROLES, PARTNER_ROLES, PERMISSIONS, can, permissionsFor } from '../../shared/roles';
+import { ALL_ROLES, KLINE_ROLES, PARTNER_ROLES, PERMISSIONS, can, permissionsFor } from '../../shared/roles';
 
 describe('file envelope encryption', () => {
   const fileId = randomUUID();
@@ -214,15 +214,18 @@ describe('tokens, api keys, urls', () => {
 
 describe('roles and permissions', () => {
   it('maps roles as in the brief', () => {
-    expect(ALL_ROLES).toHaveLength(10);
+    expect(ALL_ROLES).toHaveLength(6);
+    expect([...KLINE_ROLES]).toEqual(['kl_admin']);
     expect(can(['admin'], 'team.manage')).toBe(true);
     expect(can(['admin'], 'admin.partners')).toBe(false);
+    expect(can(['admin'], 'integration.manage')).toBe(false);
+    expect(can(['kl_admin'], 'integration.manage')).toBe(true);
     expect(can(['viewer'], 'case.write')).toBe(false);
     expect(can(['viewer'], 'case.read')).toBe(true);
     expect(can(['uploader'], 'case.reveal_name')).toBe(true);
     expect(can(['uploader'], 'team.manage')).toBe(false);
     expect(can(['finance'], 'export.run')).toBe(true);
-    expect(can(['kl_quality'], 'claim.decide')).toBe(true);
+    expect(can(['kl_admin'], 'claim.decide')).toBe(true);
     expect(can(['quality'], 'claim.decide')).toBe(false);
     expect(permissionsFor(['kl_admin']).size).toBe(PERMISSIONS.length);
     expect(can(['uploader', 'quality'], 'spec.sign')).toBe(true);

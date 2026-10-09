@@ -9,6 +9,7 @@ import { DPA_SQL, SCC_SQL } from '../services/console';
 import { siteOptions } from '../services/intake';
 import { emailSchema, inviteMember, rolesSchema } from '../services/team';
 import { activatePartner, changePartnerCode, createPartner, declinePartner, listPartners, partnerGates, profileForStaff, signupDetails, signupFlags } from '../services/partnerReview';
+import { portalBody, portalView, savePortalSettings, testPortalSettings } from '../services/portalSettings';
 import { logoRow } from '../services/profile';
 import { replyWithLogo } from './profile';
 
@@ -252,6 +253,38 @@ export async function partnerRoutes(app: FastifyInstance): Promise<void> {
       await audit(c, { actorType: 'user', actorId: a.userId, orgId: id, action: 'partner.agreement_removed', targetType: 'agreement', targetId: agreementId, ...who(req), details: { kind: r.rows[0].type } });
     });
     return { ok: true };
+  });
+
+  // The portal connection of every partner (the page "Portal connection" in the console). The API key is never returned.
+  app.get('/api/partners/portal-connections', g, async (req) => {
+    const a = klineOnly(getAuth(req));
+    return tx(dbCtx(a), async (c) => {
+      const rows = await many<any>(c, `SELECT id, name, code, status, settings FROM organizations WHERE kind = 'partner' ORDER BY name`);
+      return { items: rows.map((o) => ({ id: o.id, name: o.name, code: o.code, status: o.status, ...portalView(o.settings) })) };
+    });
+  });
+
+  app.get('/api/partners/:id/portal-api', g, async (req) => {
+    const a = klineOnly(getAuth(req));
+    const { id } = parse(idParam, req.params);
+    return tx(dbCtx(a), async (c) => {
+      const o = await loadPartner(c, id);
+      return { name: o.name, code: o.code, status: o.status, ...portalView(o.settings) };
+    });
+  });
+
+  app.put('/api/partners/:id/portal-api', gStepUp, async (req) => {
+    const a = klineOnly(getAuth(req));
+    const { id } = parse(idParam, req.params);
+    await tx(dbCtx(a), (c) => loadPartner(c, id));
+    return savePortalSettings(a, id, parse(portalBody, req.body), who(req), true);
+  });
+
+  app.post('/api/partners/:id/portal-api/test', { ...g, config: { rateLimit: { max: 10, timeWindow: '1 minute' } } }, async (req) => {
+    const a = klineOnly(getAuth(req));
+    const { id } = parse(idParam, req.params);
+    await tx(dbCtx(a), (c) => loadPartner(c, id));
+    return testPortalSettings(a, id, who(req), true);
   });
 
   app.post('/api/partners/:id/activate', g, async (req) => {
