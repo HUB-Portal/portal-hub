@@ -1,4 +1,4 @@
-import { createEffect, createMemo, createSignal, onCleanup, untrack } from 'solid-js';
+import { createEffect, createMemo, createSignal, untrack } from 'solid-js';
 import { createStore } from 'solid-js/store';
 import { plural } from './format';
 import { ApiError } from './api';
@@ -132,7 +132,8 @@ export function createBulkUploader({ blocked, onChanged, gateway = httpBulkGatew
     });
   });
 
-  onCleanup(() => { for (const a of aborts.values()) a.abort(); });
+  // Leaving the page does not stop the uploads that are running: they finish in the background (see uploadRunningFor in lib/upload).
+  // Only the Remove button on a card cancels its upload.
 
   const ready = createMemo(() => rows.filter((r) => r.stage === 'uploaded'));
   const sendable = createMemo(() => rows.filter((r) => r.stage === 'uploaded'));

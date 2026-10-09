@@ -1,8 +1,11 @@
 import { randomBytes } from 'node:crypto';
 import { aesGcmOpen, aesGcmSeal, activeKeyId, deriveKey } from './keys';
 
-/** Encrypted chunk size for files: 8 MB of plaintext per chunk. */
-export const CHUNK_SIZE = 8 * 1024 * 1024;
+/**
+ * Size of the parts a file is uploaded in. Kept under 4.5 MB: Vercel refuses a request body above that (413 FUNCTION_PAYLOAD_TOO_LARGE).
+ * Each file stores the size it was cut with (`files.chunk_size`), so files cut at 8 MB earlier still read and finish as before.
+ */
+export const CHUNK_SIZE = 4 * 1024 * 1024;
 const TAG_LEN = 16;
 
 const b64u = (b: Buffer) => b.toString('base64url');

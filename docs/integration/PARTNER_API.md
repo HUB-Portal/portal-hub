@@ -250,11 +250,11 @@ Cases that shipped in the period, by the **day of shipping in Europe/Berlin** (`
 
 ## Uploading files step by step
 
-Files go up in chunks of 8 MB so large models survive bad connections, and every chunk carries its own checksum. A file of 8 MB or less is one chunk. The steps:
+Files go up in chunks of 4 MB so large models survive bad connections, and every chunk carries its own checksum. A file of 4 MB or less is one chunk. Always cut the file with the `chunk_size` the server returns. The steps:
 
 1. **Register** the file: `POST /api/v1/cases/{key}/files` with `{"name": "U01.stl", "size": 20480123}`. Optional `arch` (`upper` or `lower`), `step` (0 to 999), `template` (true for a template). For STL, PTS and CSV files the arch, step and template flag are read from the name (`U01.stl`, `L12.pts`, `U01_T.stl`, `55813_U01.stl`); send them only to override, or send `null` for "none". The answer:
    ```json
-   { "file_id": "0c9a5b38-1d04-4f0a-8b74-7a6e2a8f1c11", "chunk_size": 8388608, "chunk_count": 3, "received": [], "state": "uploading" }
+   { "file_id": "0c9a5b38-1d04-4f0a-8b74-7a6e2a8f1c11", "chunk_size": 4194304, "chunk_count": 3, "received": [], "state": "uploading" }
    ```
    Registering the same name and size again **resumes**: `received` lists the chunks the Hub already has.
 2. **Send every chunk that is not in `received`**: `PUT /api/uploads/{file_id}/chunks/{index}` (index from 0) with the raw bytes, `Content-Type: application/octet-stream` and the header `x-chunk-sha256: <hex SHA-256 of exactly these bytes>`. All chunks are 8,388,608 bytes except the last one. A damaged chunk answers `422 checksum_mismatch`; send it again (sending a chunk again replaces it). The answer is `{"received": <how many chunks are stored>}`. Chunks can go in any order and in parallel.
@@ -278,7 +278,7 @@ curl -s -X POST "$BASE/api/v1/cases/$REF/files" -H "Authorization: Bearer $KEY" 
   -d "{\"name\":\"$FILE\",\"size\":$SIZE}" | tee reg.json
 ID=$(jq -r .file_id reg.json)
 
-# 2. send the chunks (here: one chunk; for larger files cut with `split -b 8388608 -d "$FILE" part_` and repeat per part with index 0, 1, 2 ...)
+# 2. send the chunks (here: one chunk; for larger files cut with `split -b 4194304 -d "$FILE" part_` and repeat per part with index 0, 1, 2 ...)
 SHA=$(sha256sum "$FILE" | cut -d' ' -f1)
 curl -s -X PUT "$BASE/api/uploads/$ID/chunks/0" -H "Authorization: Bearer $KEY" \
   -H "Content-Type: application/octet-stream" -H "x-chunk-sha256: $SHA" --data-binary @"$FILE"

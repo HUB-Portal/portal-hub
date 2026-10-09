@@ -440,7 +440,7 @@ describe('API v1: cases, files and submit', () => {
     const data = cubeStl(50, 'v1 model');
     const reg = await api(app, rw, 'POST', `/api/v1/cases/${caseRef}/files`, { name: 'U01.stl', size: data.length });
     expect(reg.status, JSON.stringify(reg.json)).toBe(200);
-    expect(reg.json).toMatchObject({ chunk_size: 8388608, chunk_count: 1, received: [], state: 'uploading' });
+    expect(reg.json).toMatchObject({ chunk_size: 4194304, chunk_count: 1, received: [], state: 'uploading' });
     fileId = reg.json.file_id;
     const put = (id: string, idx: number, buf: Buffer, sha?: string) =>
       api(app, rw, 'PUT', `/api/uploads/${id}/chunks/${idx}`, buf, { headers: { 'content-type': 'application/octet-stream', 'x-chunk-sha256': sha ?? createHash('sha256').update(buf).digest('hex') } });
@@ -471,7 +471,7 @@ describe('API v1: cases, files and submit', () => {
   });
 
   it('uploads a file of two chunks', async () => {
-    const big = Buffer.alloc(8 * 1024 * 1024 + 5000, 'k');
+    const big = Buffer.alloc(4 * 1024 * 1024 + 5000, 'k');
     const reg = await api(app, rw, 'POST', `/api/v1/cases/${caseKey}/files`, { name: 'notes.txt', size: big.length, arch: null, step: null });
     expect(reg.status, JSON.stringify(reg.json)).toBe(200);
     expect(reg.json).toMatchObject({ chunk_count: 2, received: [] });

@@ -1,4 +1,5 @@
 // Upload engine: resumable chunked uploads with a SHA-256 per chunk, parallel files, waiting for checks, submitting clean cases.
+import { createSignal } from 'solid-js';
 import { api, ApiError, CASE_ADDRESS_REQUIRED_TEXT } from './api';
 import type { Arch, FileKind } from '@shared/filenames';
 import type { FileSource } from './source';
@@ -169,6 +170,25 @@ export async function waitForFiles(
   return done;
 }
 
+// ---- uploads that are running in this tab -------------------------------------------------------------------------------
+// The count lives here and not in a page, so it survives the page that started the upload. A case page opened while the files of that
+// case are still going up (for example from the Direct manufacturing page) can then tell "still uploading" from "cut off".
+const [runningByCase, setRunningByCase] = createSignal<ReadonlyMap<string, number>>(new Map());
+let runningTotal = 0;
+const warnLeave = (e: BeforeUnloadEvent) => { e.preventDefault(); e.returnValue = ''; };
+
+/** True while an upload of files for this case is running in this browser tab. */
+export const uploadRunningFor = (caseId: string): boolean => (runningByCase().get(caseId) ?? 0) > 0;
+
+function trackUpload(caseId: string | null): () => void {
+  if (runningTotal++ === 0) window.addEventListener('beforeunload', warnLeave);
+  if (caseId) setRunningByCase((m) => new Map(m).set(caseId, (m.get(caseId) ?? 0) + 1));
+  return () => {
+    if (--runningTotal === 0) window.removeEventListener('beforeunload', warnLeave);
+    if (caseId) setRunningByCase((m) => { const n = new Map(m); const left = (n.get(caseId) ?? 1) - 1; if (left > 0) n.set(caseId, left); else n.delete(caseId); return n; });
+  };
+}
+
 export interface CaseUploadResult {
   files: Map<string, FileStatus>;
   ok: boolean;
@@ -176,6 +196,15 @@ export interface CaseUploadResult {
 
 /** Upload all files of one case (4 at a time), then wait for the checks to finish. */
 export async function uploadCaseFiles(caseUuid: UploadTarget, specs: UploadSpec[], hooks: UploadHooks = {}): Promise<CaseUploadResult> {
+  const done = trackUpload(typeof caseUuid === 'string' ? caseUuid : caseUuid.purpose === 'case' ? caseUuid.caseId : null);
+  try {
+    return await uploadCaseFilesNow(caseUuid, specs, hooks);
+  } finally {
+    done();
+  }
+}
+
+async function uploadCaseFilesNow(caseUuid: UploadTarget, specs: UploadSpec[], hooks: UploadHooks): Promise<CaseUploadResult> {
   const status = new Map<string, FileStatus>();
   const set = (key: string, s: FileStatus) => { status.set(key, s); hooks.onFile?.(key, s); };
   for (const s of specs) set(s.key, { phase: 'queued', sent: 0, total: s.source.size });
@@ -207,6 +236,8 @@ export async function uploadCaseFiles(caseUuid: UploadTarget, specs: UploadSpec[
 
 export function friendlyUploadError(e: unknown): string {
   if (e instanceof ApiError) {
+    // A 413 without our own code comes from the host in front of the Hub (a request body above its limit), not from a file rule.
+    if (e.status === 413 && e.code !== 'file_too_large') return 'The server refused a part of this file because it was too big. Try again, and tell K Line support if it keeps failing.';
     switch (e.code) {
       case 'file_type_not_allowed': return 'This file type is not accepted.';
       case 'file_too_large': return 'This file is too large.';

@@ -126,7 +126,7 @@ describe('upload, checks and submit', () => {
     const data = cubeStl(50, STL_HEADER_SECRET);
     const init = await up.call('POST', '/api/uploads', { purpose: 'case', caseId: caseA.id, name: '55813_U01.stl', size: data.length });
     expect(init.status).toBe(200);
-    expect(init.json).toMatchObject({ chunkSize: 8388608, chunkCount: 1, received: [] });
+    expect(init.json).toMatchObject({ chunkSize: 4194304, chunkCount: 1, received: [] });
     const bad = await up.putChunk(init.json.fileId, 0, data, 'a'.repeat(64));
     expect(bad.status).toBe(422);
     expect(bad.json.code).toBe('checksum_mismatch');
@@ -217,11 +217,25 @@ describe('upload, checks and submit', () => {
     expect((await up.call('GET', `/api/cases/${caseA.id}`)).json.case.checks.errors).toEqual([]);
   });
 
+  it('cuts an unfinished upload that was started with 8 MB parts again, so it can finish', async () => {
+    const big = Buffer.alloc(9 * 1024 * 1024, 'cut again\n');
+    const init = await up.call('POST', '/api/uploads', { purpose: 'case', caseId: caseA.id, name: 'recut.txt', size: big.length });
+    // The state of an upload that began when parts were 8 MB and stopped before anything was stored.
+    await q('UPDATE files SET chunk_size = 8388608, chunk_count = 2 WHERE id = $1', [init.json.fileId]);
+    const again = await up.call('POST', '/api/uploads', { purpose: 'case', caseId: caseA.id, name: 'recut.txt', size: big.length });
+    expect(again.json).toMatchObject({ fileId: init.json.fileId, chunkSize: 4194304, chunkCount: 3, received: [] });
+    const f = await up.uploadFile(caseA.id, 'recut.txt', big);
+    expect(f.fileId).toBe(init.json.fileId);
+    expect(f.file.state).toBe('ready');
+    expect(f.file.size).toBe(big.length);
+    await up.call('DELETE', `/api/files/${f.fileId}`); // the case keeps only the files the later tests expect
+  });
+
   it('uploads a multi chunk file and resumes where it stopped', async () => {
     const big = Buffer.alloc(9 * 1024 * 1024, 'note line\n');
     const init = await up.call('POST', '/api/uploads', { purpose: 'case', caseId: caseA.id, name: 'notes.txt', size: big.length });
-    expect(init.json.chunkCount).toBe(2);
-    expect((await up.putChunk(init.json.fileId, 0, big.subarray(0, 8 * 1024 * 1024))).json.received).toBe(1);
+    expect(init.json.chunkCount).toBe(3);
+    expect((await up.putChunk(init.json.fileId, 0, big.subarray(0, 4 * 1024 * 1024))).json.received).toBe(1);
     const resume = await up.call('POST', '/api/uploads', { purpose: 'case', caseId: caseA.id, name: 'notes.txt', size: big.length });
     expect(resume.json.fileId).toBe(init.json.fileId);
     expect(resume.json.received).toEqual([0]);

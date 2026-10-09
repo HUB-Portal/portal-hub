@@ -47,7 +47,7 @@ SolidJS 1.9, `@solidjs/router`, TanStack Query 5 (`@tanstack/solid-query`), `luc
 
 **Menu visibility (visibility only).** `organizations.settings.menu = {claims, spec, materials}` (`admins` or `everyone`, missing means `admins`) decides whether non administrators of a partner company see the optional items Quality claims, Production spec and Materials. `GET /api/org` returns the caller's resolved `menu` booleans (administrators and K Line staff always `true`); `GET` and `PUT /api/org/menu` read and change the raw setting (`org.edit`, partner users only, audited as `org.menu_changed`). The shell, route guards (`Guard menu=...`, redirect to `/portal`), case page links and the notification bell use it. Server permissions and route guards are unchanged by it.
 
-Uploads are prepared in the browser. Dropped folders and zips are read client side, grouped into cases with `shared/filenames.ts`, and uploaded file by file in 8 MB chunks, each with a SHA-256. The server never unpacks an archive.
+Uploads are prepared in the browser. Dropped folders and zips are read client side, grouped into cases with `shared/filenames.ts`, and uploaded file by file in 4 MB chunks (under the 4.5 MB request limit of Vercel), each with a SHA-256. The server never unpacks an archive.
 
 ## 2. Tenancy and row level security
 
@@ -97,7 +97,7 @@ Scheduling inside the worker: the retention job is queued when the last run is o
 
 ## 4. Storage and encryption
 
-**Files.** Each file gets a random 32 byte data key and an 8 byte random nonce prefix. The content is cut into 8 MB chunks. Each chunk is sealed with AES-256-GCM. The nonce is the prefix plus the chunk index. The additional data is `chunk|<fileId>|<idx>|<count>`, so a chunk cannot be moved, swapped, or dropped from the end without detection. The data key is wrapped (AES-256-GCM, additional data `key|<fileId>`) with a key encryption key derived by HKDF-SHA256 from `MASTER_KEYS[ACTIVE_KEY_ID]`. The key id is stored with the file so old files stay readable after a rotation.
+**Files.** Each file gets a random 32 byte data key and an 8 byte random nonce prefix. The content is cut into 4 MB chunks (`files.chunk_size` keeps the size each file was cut with; older files are 8 MB). Each chunk is sealed with AES-256-GCM. The nonce is the prefix plus the chunk index. The additional data is `chunk|<fileId>|<idx>|<count>`, so a chunk cannot be moved, swapped, or dropped from the end without detection. The data key is wrapped (AES-256-GCM, additional data `key|<fileId>`) with a key encryption key derived by HKDF-SHA256 from `MASTER_KEYS[ACTIVE_KEY_ID]`. The key id is stored with the file so old files stay readable after a rotation.
 
 Only ciphertext reaches the storage. Storage keys are opaque (`f/<32 hex>/<chunk index>`). Original file names are kept only as encrypted fields (`files.name_enc`). Downloads are decrypted on the fly, verified chunk by chunk, and served with `Content-Disposition: attachment`, `nosniff`, `no-store` and a sandbox CSP. No public or presigned URLs exist.
 

@@ -305,14 +305,20 @@ export async function createUpload(ctx: DbCtx, a: AuthContext, input: CreateUplo
     // `Upper/Step 01.stl` and `Lower/Step 01.stl` can share a name and a size, and they are two different files.
     const candidates = await many<any>(
       c,
-      `SELECT id, name_enc, state, chunk_count, arch, step, is_template FROM files WHERE ${ownerCol} = $1 AND purpose = $3 AND size = $2 AND state IN ('uploading', 'processing', 'ready')`,
+      `SELECT id, name_enc, state, size, chunk_size, chunk_count, arch, step, is_template FROM files WHERE ${ownerCol} = $1 AND purpose = $3 AND size = $2 AND state IN ('uploading', 'processing', 'ready')`,
       [ownerId, input.size, purpose],
     );
     const sameSlot = (f: any) => purpose !== 'case' || ((f.arch ?? null) === (arch ?? null) && (f.step ?? null) === (step ?? null) && !!f.is_template === !!template);
     for (const f of candidates) {
       if (fileName(f) === name && sameSlot(f)) {
         const received = f.state === 'uploading' ? await receivedChunks(c, f.id) : Array.from({ length: f.chunk_count }, (_, i) => i);
-        return { fileId: f.id, chunkSize: CHUNK_SIZE, chunkCount: f.chunk_count, received, state: f.state };
+        // A file that was started with bigger parts (8 MB) and has none stored yet is cut again at the current size, so it can still be finished.
+        if (f.state === 'uploading' && !received.length && f.chunk_size !== CHUNK_SIZE) {
+          const count = chunkCountFor(Number(f.size));
+          await c.query('UPDATE files SET chunk_size = $2, chunk_count = $3, updated_at = now() WHERE id = $1', [f.id, CHUNK_SIZE, count]);
+          return { fileId: f.id, chunkSize: CHUNK_SIZE, chunkCount: count, received, state: f.state };
+        }
+        return { fileId: f.id, chunkSize: Number(f.chunk_size), chunkCount: f.chunk_count, received, state: f.state };
       }
     }
 
@@ -353,8 +359,8 @@ export async function createUpload(ctx: DbCtx, a: AuthContext, input: CreateUplo
   });
 }
 
-export function expectedChunkSize(size: number, count: number, idx: number): number {
-  return idx < count - 1 ? CHUNK_SIZE : size - (count - 1) * CHUNK_SIZE;
+export function expectedChunkSize(size: number, count: number, idx: number, chunkSize = CHUNK_SIZE): number {
+  return idx < count - 1 ? chunkSize : size - (count - 1) * chunkSize;
 }
 
 /** Stores one sealed chunk. Idempotent: sending the same chunk again replaces it. */
@@ -362,7 +368,7 @@ export async function putChunk(ctx: DbCtx, fileId: string, idx: number, body: Bu
   const file = await tx(ctx, async (c) =>
     one<any>(
       c,
-      `SELECT f.id, f.org_id, f.case_id, f.claim_id, f.shipment_id, f.purpose, f.kind, f.size, f.chunk_count, f.wrapped_key, f.nonce_prefix, f.storage_prefix, f.state,
+      `SELECT f.id, f.org_id, f.case_id, f.claim_id, f.shipment_id, f.purpose, f.kind, f.size, f.chunk_size, f.chunk_count, f.wrapped_key, f.nonce_prefix, f.storage_prefix, f.state,
               cs.status AS case_status, cl.status AS claim_status, sh.status AS shipment_status
          FROM files f LEFT JOIN cases cs ON cs.id = f.case_id LEFT JOIN claims cl ON cl.id = f.claim_id LEFT JOIN material_shipments sh ON sh.id = f.shipment_id
         WHERE f.id = $1`,
@@ -380,7 +386,7 @@ export async function putChunk(ctx: DbCtx, fileId: string, idx: number, body: Bu
     if (file.shipment_status !== 'in_transit') throw conflict('Documents can only be added while a shipment is on its way.', 'shipment_not_open');
   } else if (!takesFile(file.case_status, file.kind)) throw conflict('Files can only be added while a case is a draft or on hold. A sent case takes documents until production starts.', 'case_not_open');
   if (!Number.isInteger(idx) || idx < 0 || idx >= file.chunk_count) throw badRequest('That chunk number is not valid for this file.', 'invalid_chunk');
-  if (!Buffer.isBuffer(body) || body.length !== expectedChunkSize(Number(file.size), file.chunk_count, idx)) {
+  if (!Buffer.isBuffer(body) || body.length !== expectedChunkSize(Number(file.size), file.chunk_count, idx, Number(file.chunk_size))) {
     throw new AppError(422, 'invalid_chunk_size', 'That chunk is not the expected size.');
   }
   if (!claimedSha || !/^[0-9a-fA-F]{64}$/.test(claimedSha)) throw badRequest('Send the SHA-256 of the chunk in the x-chunk-sha256 header.', 'checksum_required');

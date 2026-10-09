@@ -8,6 +8,7 @@ import { archLabel, caseStatus, eventLabel, formatBytes, formatDate, formatDateT
 import { fallbackStepper, stageLabel } from '../../lib/stages';
 import { INSTRUCTIONS_MAX, readInstructionBytes } from '../../lib/instructions';
 import { readDrop, readFileList } from '../../lib/intake';
+import { uploadRunningFor } from '../../lib/upload';
 import { CLAIMABLE_CASE_STATUSES, REPLACEABLE_CASE_STATUSES, alignerName, alignersOf, claimStatusLabel, claimStatusTone } from '../../lib/quality';
 import type { CaseChild, CaseClaimRef, CaseDetail as CaseDetailData, CaseEvent, CaseFile, CaseItem, Issue, Routing } from '../../lib/types';
 import { AddDocuments } from '../../ui/AddDocuments';
@@ -115,7 +116,8 @@ export default function CaseDetail(props: { staff?: boolean }) {
   // A draft takes new files at any time: the drop zone sits in the Aligners card and the whole page accepts drops (review of 8 Oct 2026, R5).
   const uploader = useCaseUploader(id, refresh);
   const dragging = usePageDrop((snap) => { void uploader.add(readDrop(snap)); }, filesEditable);
-  const idle = () => !uploader.busy;
+  // Still uploading when this page's own uploader or an upload started elsewhere in this tab (Direct manufacturing) is running for the case.
+  const idle = () => !uploader.busy && !uploadRunningFor(id());
 
   const cancel = createMutation(() => ({
     mutationFn: () => api(`/api/cases/${id()}/cancel`, { method: 'POST', body: {} }),
@@ -178,7 +180,7 @@ export default function CaseDetail(props: { staff?: boolean }) {
           const canErase = () => can('case.erase') && c().status !== 'draft' && !erased();
           const uploading = () => files().some((f) => f.state === 'uploading' || f.state === 'processing') || uploader.busy;
           // Why Submit is switched off: an error blocks it, so say so instead of letting the partner press it and read the answer afterwards.
-          const submitBlock = (): string | null => (uploading() && files().some((f) => f.state === 'uploading' && idle()) ? 'Some files were not finished uploading. Remove them or add them again.' : null);
+          const submitBlock = (): string | null => (uploading() && files().some((f) => f.state === 'uploading' && idle()) ? 'Some files were not finished uploading. Drop the same files on this page again to finish them, or remove them.' : null);
           const onSubmitted = (text: string) => { setDialog(null); setNotice({ tone: 'good', text }); refresh(); };
 
           return (
