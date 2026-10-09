@@ -73,7 +73,7 @@ Say: "You check the mapping and fix anything before it goes. Nothing is silently
 
 Click: leave **Submit automatically when all checks pass** ticked, start the batch.
 
-Say: "Each file goes up in 8 MB chunks, every chunk with its own checksum, so a bad connection resumes where it stopped. On the server each file is encrypted with its own key, scanned for malware, then checked: is the 3D model closed, is the trim line closed, does it sit on its model."
+Say: "Each file goes up in 4 MB chunks, every chunk with its own checksum, so a bad connection resumes where it stopped. On the server each file is encrypted with its own key, scanned for malware, then checked: is the 3D model closed, is the trim line closed, does it sit on its model."
 
 Click: when it finishes, open the batch result.
 

@@ -23,7 +23,7 @@ describe('file envelope encryption', () => {
     const sealed = sealBuffer(k.cipher, data, 100);
     expect(sealed).toHaveLength(3);
     expect(openBuffer(k.cipher, sealed, 3).equals(data)).toBe(true);
-    expect(CHUNK_SIZE).toBe(8 * 1024 * 1024);
+    expect(CHUNK_SIZE).toBe(4 * 1024 * 1024); // below the 4.5 MB request limit of Vercel
     expect(chunkCountFor(0)).toBe(1);
     expect(chunkCountFor(CHUNK_SIZE + 1)).toBe(2);
   });
