@@ -12,7 +12,7 @@ import { useMfaRequired } from '../../lib/orgApi';
 
 export const ROLE_INFO: Record<string, { label: string; text: string }> = {
   admin: { label: 'Administrator', text: 'Everything, including the team and settings.' },
-  uploader: { label: 'Uploader', text: 'Sends files and works on cases.' },
+  uploader: { label: 'Member', text: 'Sends files and works on cases.' },
   quality: { label: 'Quality', text: 'Reviews cases, files and specifications.' },
   finance: { label: 'Finance', text: 'Sees cases and exports for invoicing.' },
   viewer: { label: 'Viewer', text: 'Can look but not change anything.' },

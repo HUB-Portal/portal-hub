@@ -36,7 +36,7 @@ const FLOW: FlowStep[] = [
 
 const ROLES: { role: string; can: string }[] = [
   { role: 'Admin', can: 'Manages the team, the company profile, integrations and the menu.' },
-  { role: 'Uploader', can: 'Sends cases and orders replacements.' },
+  { role: 'Member', can: 'Sends cases and orders replacements.' },
   { role: 'Quality', can: 'Follows claims and the production spec.' },
   { role: 'Finance', can: 'Sees shipped cases and exports.' },
   { role: 'Viewer', can: 'Can look but not change.' },

@@ -1,13 +1,13 @@
 # Portal Hub: guide for partner staff
 
-Welcome. This guide is for the people at your company who send cases to K Line: uploaders, quality staff, finance staff and administrators. It is written in plain language. Menu names in **bold** match the menu in the Hub.
+Welcome. This guide is for the people at your company who send cases to K Line: members, quality staff, finance staff and administrators. It is written in plain language. Menu names in **bold** match the menu in the Hub.
 
 What you see depends on your role. If a menu item is missing, your role does not include it. Ask an administrator in your company.
 
 | Role | What it is for |
 |---|---|
 | Admin | Everything for your company: team, profile, integrations, all cases. |
-| Uploader | Sends and manages cases, reads claims and the specification, declares material shipments. |
+| Member | Sends and manages cases, reads claims and the specification, declares material shipments. |
 | Quality | Reports and follows quality claims, edits and signs the production specification. Administrators must first switch **Quality claims** and **Production spec** on for the company (see "Menu visibility for admins"), otherwise the Quality role does not see them in the menu. |
 | Finance | Reads cases and exports reports (no patient names). |
 | Viewer | Reads cases, claims, specification and materials. Cannot change anything, including the company logo. |
@@ -242,7 +242,7 @@ The address used for a direct manufacturing case is the one of the person who **
 
 Every company must have a logo. Everyone in your company sees it in the top bar after signing in, next to the company name. Until you add one, a banner reminds you on every page, and K Line cannot approve your company.
 
-**Who can change it:** every team member except viewers (administrators, uploaders, quality and finance). Open **Company profile** and use **Choose logo**, **Replace logo** or **Remove logo** on the **Company logo** card. Viewers can see the logo but not change it. The old logo file is deleted when you replace it. Every change is written to your **Access log** with the name of the person, and your administrators get a notification in the bell ("Name changed the company logo"). Brand logos stay with administrators.
+**Who can change it:** every team member except viewers (administrators, members, quality and finance). Open **Company profile** and use **Choose logo**, **Replace logo** or **Remove logo** on the **Company logo** card. Viewers can see the logo but not change it. The old logo file is deleted when you replace it. Every change is written to your **Access log** with the name of the person, and your administrators get a notification in the bell ("Name changed the company logo"). Brand logos stay with administrators.
 
 * **Format:** PNG (best, with a transparent background), SVG (plain shapes only, no scripts) or JPG.
 * **File size:** at most 2 MB.
