@@ -130,6 +130,15 @@ function readHints(text: string, opts: { allowBareNumber: boolean; idToken?: str
       step = Number(ls[2]);
       continue;
     }
+    // OnyxCeph style export names: the patient number, then an optional T for a template, U or L for the arch and N plus the step,
+    // for example 754412UN03 (upper step 3), 754412LN12 (lower step 12) and 754412TUN00 (upper template).
+    const onyx = /^(?:\d{4,})?(T)?([UL])N0*(\d{1,3})$/i.exec(tok);
+    if (onyx) {
+      arch = onyx[2]!.toLowerCase() === 'u' ? 'upper' : 'lower';
+      step = Number(onyx[3]);
+      if (onyx[1]) template = true;
+      continue;
+    }
     if (low === 't' && i > 0) { template = true; continue; }
     if (low === 'template' || low === 'templates') { template = true; continue; }
     if (UPPER_WORDS.includes(low)) { arch = arch ?? 'upper'; continue; }

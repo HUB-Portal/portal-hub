@@ -27,6 +27,12 @@ describe('file name parsing', () => {
     expect(parseFileName('90002_U01_T.stl', ['STL'], '90002')).toMatchObject({ arch: 'upper', step: 1, template: true });
     expect(parseFileName('90001_L11_T.csv', ['CSV'], '90001')).toMatchObject({ arch: 'lower', step: 11, template: true });
   });
+  it('reads OnyxCeph export names such as 754412UN03, 754412LN12 and 754412TUN00', () => {
+    expect(parseFileName('754412UN03.stl')).toMatchObject({ kind: 'stl', arch: 'upper', step: 3, template: false });
+    expect(parseFileName('754412LN12.PTS')).toMatchObject({ kind: 'pts', arch: 'lower', step: 12, template: false });
+    expect(parseFileName('754412TUN00.stl')).toMatchObject({ arch: 'upper', step: 0, template: true });
+    expect(parseFileName('754412TLN00.PTS')).toMatchObject({ arch: 'lower', step: 0, template: true });
+  });
   it('treats Template as step 0', () => {
     expect(parseFileName('Upper Template.stl')).toMatchObject({ arch: 'upper', step: 0, template: true });
   });
