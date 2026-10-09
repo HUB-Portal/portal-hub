@@ -169,9 +169,7 @@ export async function seedAcmeCases(c: PoolClient, ctx: SeedCtx): Promise<SeedCa
   const u = ctx.users;
   const uploader = u['upload@acme.demo']!;
   const partnerQuality = u['quality@acme.demo']!;
-  const klIntake = u['intake@kline.demo']!;
-  const klChaves = u['chaves@kline.demo']!;
-  const klQuality = u['quality@kline.demo']!;
+  const klAdmin = u['admin@kline.demo']!;
   const spec = (await c.query(`SELECT id FROM specs WHERE org_id = $1 AND status = 'active'`, [ctx.acmeId])).rows[0]?.id as string | undefined;
   const retention = 24;
 
@@ -213,7 +211,7 @@ export async function seedAcmeCases(c: PoolClient, ctx: SeedCtx): Promise<SeedCa
     const ev = async (type: string, f: number, data: Record<string, unknown> = {}, actor: { type: string; id: string | null } = { type: 'system', id: null }) =>
       c.query(`INSERT INTO case_events (org_id, case_id, type, actor_type, actor_id, data, created_at) VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7)`, [ctx.acmeId, id, type, actor.type, actor.id, JSON.stringify(data), at(f)]);
     const partner = { type: 'user', id: uploader.id };
-    const kline = { type: 'user', id: klIntake.id };
+    const kline = { type: 'user', id: klAdmin.id };
     await ev('created', 0, { mode: 'standard' }, partner);
     if (submitted) await ev('submitted', 0.05, { status: readyAt ? 'ready' : 'submitted', site: readyAt ? d.site ?? null : null }, partner);
     if (d.status === 'ready' || stageIdx >= 0) await ev('routed', 0.12, { site: d.site, source: 'kline', sourceLabel: 'K Line' }, kline);
@@ -252,8 +250,8 @@ export async function seedAcmeCases(c: PoolClient, ctx: SeedCtx): Promise<SeedCa
     // K Line opened files and revealed names of cases it is producing. The partner sees every one of these entries.
     if (stageIdx >= 0 && fileIds.length) {
       const f = (await c.query(`SELECT id, kind, size FROM files WHERE id = $1`, [fileIds[0]])).rows[0];
-      await audit(c, { actorType: 'user', actorId: klChaves.id, orgId: ctx.acmeId, action: 'file.download', targetType: 'file', targetId: f.id, ip: '10.20.0.14', details: { caseId: id, kind: f.kind, size: Number(f.size) } });
-      await audit(c, { actorType: 'user', actorId: klChaves.id, orgId: ctx.acmeId, action: 'case.name_revealed', targetType: 'case', targetId: id, ip: '10.20.0.14', details: { ref } });
+      await audit(c, { actorType: 'user', actorId: klAdmin.id, orgId: ctx.acmeId, action: 'file.download', targetType: 'file', targetId: f.id, ip: '10.20.0.14', details: { caseId: id, kind: f.kind, size: Number(f.size) } });
+      await audit(c, { actorType: 'user', actorId: klAdmin.id, orgId: ctx.acmeId, action: 'case.name_revealed', targetType: 'case', targetId: id, ip: '10.20.0.14', details: { ref } });
     }
   }
 
@@ -274,12 +272,12 @@ export async function seedAcmeCases(c: PoolClient, ctx: SeedCtx): Promise<SeedCa
      VALUES ($1, $2, $3, 'closed', 'remake', 'Upper step 2 does not seat on the model', 'The second upper aligner rocks on the canines and does not seat fully. Photos are attached to the practice record.', '{}',
              'The aligner was trimmed before it had cooled fully, which let the edge curl.', 'Cooling time before trimming was extended and is now checked at the quality station.', 'We will remake the aligner. Sorry for the trouble.',
              $4, $5, $6, $7, $8, $7) RETURNING id`,
-    [ctx.acmeId, c1, olga.id, partnerQuality.id, klQuality.id, new Date(now - 6 * DAY), new Date(now - 4 * DAY), new Date(now - 8 * DAY)],
+    [ctx.acmeId, c1, olga.id, partnerQuality.id, klAdmin.id, new Date(now - 6 * DAY), new Date(now - 4 * DAY), new Date(now - 8 * DAY)],
   )).rows[0].id as string;
   await c.query(`INSERT INTO claim_items (org_id, claim_id, arch, step, is_template, defect_code, note, pos) VALUES ($1, $2, 'upper', 2, false, 'DEFORMED', 'Rocks on the canines.', 0)`, [ctx.acmeId, claim1]);
   const rework = await createChildCase(c, {
     parentId: olga.id, kind: 'rework', items: [{ arch: 'upper', step: 2, template: false }], priority: 'rush', claim: { id: claim1, number: c1 },
-    actor: { actorType: 'user', actorId: klQuality.id }, userId: klQuality.id,
+    actor: { actorType: 'user', actorId: klAdmin.id }, userId: klAdmin.id,
   });
   await c.query(`UPDATE claims SET rework_case_id = $2 WHERE id = $1`, [claim1, rework.id]);
   const msg = (claimId: string, side: 'partner' | 'kline' | 'system', author: string | null, body: string, when: Date) =>
@@ -287,12 +285,12 @@ export async function seedAcmeCases(c: PoolClient, ctx: SeedCtx): Promise<SeedCa
   await msg(claim1, 'system', null, 'Claim opened.', new Date(now - 8 * DAY));
   await msg(claim1, 'partner', partnerQuality.id, 'The aligner does not seat. We need a new one before the next check-up.', new Date(now - 7.5 * DAY));
   await msg(claim1, 'system', null, `Claim accepted. Resolution: remake. A rush rework case ${rework.ref} has been created.`, new Date(now - 6 * DAY));
-  await msg(claim1, 'kline', klQuality.id, 'We will remake the aligner. Sorry for the trouble.', new Date(now - 6 * DAY + 60_000));
+  await msg(claim1, 'kline', klAdmin.id, 'We will remake the aligner. Sorry for the trouble.', new Date(now - 6 * DAY + 60_000));
   await msg(claim1, 'system', null, 'Claim closed.', new Date(now - 4 * DAY));
   await c.query(`INSERT INTO case_events (org_id, case_id, type, actor_type, actor_id, data, created_at) VALUES ($1, $2, 'claim_opened', 'user', $3, $4::jsonb, $5)`, [ctx.acmeId, olga.id, partnerQuality.id, JSON.stringify({ claimNumber: c1, items: 1 }), new Date(now - 8 * DAY)]);
   await audit(c, { actorType: 'user', actorId: partnerQuality.id, orgId: ctx.acmeId, action: 'claim.opened', targetType: 'claim', targetId: claim1, details: { number: c1, items: 1 } });
-  await audit(c, { actorType: 'user', actorId: klQuality.id, orgId: ctx.acmeId, action: 'claim.accepted', targetType: 'claim', targetId: claim1, details: { number: c1, resolution: 'remake', reworkRef: rework.ref } });
-  await audit(c, { actorType: 'user', actorId: klQuality.id, orgId: ctx.acmeId, action: 'claim.closed', targetType: 'claim', targetId: claim1, details: { number: c1, outcome: 'accepted' } });
+  await audit(c, { actorType: 'user', actorId: klAdmin.id, orgId: ctx.acmeId, action: 'claim.accepted', targetType: 'claim', targetId: claim1, details: { number: c1, resolution: 'remake', reworkRef: rework.ref } });
+  await audit(c, { actorType: 'user', actorId: klAdmin.id, orgId: ctx.acmeId, action: 'claim.closed', targetType: 'claim', targetId: claim1, details: { number: c1, outcome: 'accepted' } });
 
   // ---- Claim 2: still in review, on the delivered case
   const clara = ids['AC-1015']!;
@@ -304,7 +302,7 @@ export async function seedAcmeCases(c: PoolClient, ctx: SeedCtx): Promise<SeedCa
   )).rows[0].id as string;
   await c.query(`INSERT INTO claim_items (org_id, claim_id, arch, step, is_template, defect_code, note, pos) VALUES ($1, $2, 'lower', 1, false, 'SHARP_EDGE', 'Distal edge.', 0)`, [ctx.acmeId, claim2]);
   await msg(claim2, 'system', null, 'Claim opened.', new Date(now - 2 * DAY));
-  await msg(claim2, 'kline', klQuality.id, 'Thank you. The quality team is looking at the batch records.', new Date(now - 1.5 * DAY));
+  await msg(claim2, 'kline', klAdmin.id, 'Thank you. The quality team is looking at the batch records.', new Date(now - 1.5 * DAY));
   await c.query(`INSERT INTO case_events (org_id, case_id, type, actor_type, actor_id, data, created_at) VALUES ($1, $2, 'claim_opened', 'user', $3, $4::jsonb, $5)`, [ctx.acmeId, clara.id, partnerQuality.id, JSON.stringify({ claimNumber: c2, items: 1 }), new Date(now - 2 * DAY)]);
   await audit(c, { actorType: 'user', actorId: partnerQuality.id, orgId: ctx.acmeId, action: 'claim.opened', targetType: 'claim', targetId: claim2, details: { number: c2, items: 1 } });
 
@@ -321,8 +319,8 @@ export async function seedAcmeCases(c: PoolClient, ctx: SeedCtx): Promise<SeedCa
   );
 
   // A few K Line staff actions that partners can see in their audit view
-  await audit(c, { actorType: 'user', actorId: klIntake.id, orgId: ctx.acmeId, action: 'case.routed', targetType: 'case', targetId: ids['AC-1004']!.id, ip: '10.20.0.11', details: { ref: ids['AC-1004']!.ref, site: 'PT-CHV' } });
-  await audit(c, { actorType: 'user', actorId: klIntake.id, orgId: ctx.acmeId, action: 'case.on_hold', targetType: 'case', targetId: ids['AC-1003']!.id, ip: '10.20.0.11', details: { ref: ids['AC-1003']!.ref } });
+  await audit(c, { actorType: 'user', actorId: klAdmin.id, orgId: ctx.acmeId, action: 'case.routed', targetType: 'case', targetId: ids['AC-1004']!.id, ip: '10.20.0.11', details: { ref: ids['AC-1004']!.ref, site: 'PT-CHV' } });
+  await audit(c, { actorType: 'user', actorId: klAdmin.id, orgId: ctx.acmeId, action: 'case.on_hold', targetType: 'case', targetId: ids['AC-1003']!.id, ip: '10.20.0.11', details: { ref: ids['AC-1003']!.ref } });
 
   void replacement;
   return { cases: CASES.length + 2, claims: 2, files: fileTotal };

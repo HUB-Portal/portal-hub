@@ -44,7 +44,7 @@ Special category data (health) is involved. Direct manufacturing cases require t
 
 | Recipient | Role | Data |
 |---|---|---|
-| K Line staff (intake, production, quality, finance) | Employees of the processor | Per role. Names can be revealed by some roles; every reveal is logged to the partner |
+| K Line staff (all administrators) | Employees of the processor | Names can be revealed by every K Line account; every reveal is logged to the partner |
 | Hosting provider (Hetzner, Germany) [confirm] | Sub-processor | Encrypted files and database |
 | Backup storage box [confirm] | Sub-processor | Encrypted backups |
 | SMTP provider [name to fill in] | Sub-processor | Recipient email addresses and fixed text notices, no patient data |

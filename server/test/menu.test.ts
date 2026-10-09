@@ -23,7 +23,6 @@ let viewer: Client;
 let isoViewer: Client;
 let isoAdmin: Client;
 let klAdmin: Client;
-let klIntake: Client;
 
 const ALL_FALSE = { claims: false, spec: false, materials: false };
 const ALL_TRUE = { claims: true, spec: true, materials: true };
@@ -49,7 +48,6 @@ beforeAll(async () => {
   isoAdmin = await new Client(app).full('admin@menu9.demo');
   isoViewer = await new Client(app).full('viewer@menu9.demo');
   klAdmin = await new Client(app).full('admin@kline.demo');
-  klIntake = await new Client(app).full('intake@kline.demo');
 });
 
 afterAll(async () => {
@@ -85,7 +83,6 @@ describe('menu visibility: defaults', () => {
 
   it('shows all three to K Line staff, whatever their role', async () => {
     expect(await menuOf(klAdmin)).toEqual(ALL_TRUE);
-    expect(await menuOf(klIntake)).toEqual(ALL_TRUE);
   });
 });
 
@@ -137,7 +134,6 @@ describe('menu visibility: who may change it', () => {
 
   it('refuses K Line staff, even administrators, with 403', async () => {
     expect((await klAdmin.call('PUT', '/api/org/menu', { claims: 'everyone' })).status).toBe(403);
-    expect((await klIntake.call('PUT', '/api/org/menu', { claims: 'everyone' })).status).toBe(403);
     expect((await klAdmin.call('GET', '/api/org/menu')).status).toBe(403);
   });
 
@@ -156,10 +152,10 @@ describe('menu visibility: who may change it', () => {
     expect([...permissionsFor(['viewer'])].sort()).toEqual([...ROLE_PERMISSIONS.viewer].sort());
     expect(ROLE_PERMISSIONS.admin).toContain('org.edit');
     for (const role of ['uploader', 'quality', 'finance', 'viewer'] as const) expect(ROLE_PERMISSIONS[role]).not.toContain('org.edit');
-    // the company logo is open to every partner role except viewer, and to no K Line role except the all permissions administrator
+    // the company logo is open to every partner role except viewer, and to K Line staff through the single all permissions administrator role
     for (const role of ['admin', 'uploader', 'quality', 'finance'] as const) expect(ROLE_PERMISSIONS[role]).toContain('org.logo');
     expect(ROLE_PERMISSIONS.viewer).not.toContain('org.logo');
-    for (const role of ['kl_intake', 'kl_production', 'kl_quality', 'kl_finance'] as const) expect(ROLE_PERMISSIONS[role]).not.toContain('org.logo');
+    expect(ROLE_PERMISSIONS.kl_admin).toEqual(expect.arrayContaining(['org.logo', 'org.edit']));
     expect(ROLE_PERMISSIONS.viewer).toEqual(expect.arrayContaining(['claim.read', 'spec.read', 'material.read']));
   });
 

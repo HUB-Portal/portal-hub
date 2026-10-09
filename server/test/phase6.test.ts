@@ -8,6 +8,7 @@ import { seedDemo } from '../src/demo/seed';
 import { insertCase } from '../src/services/cases';
 import { setExportLimits } from '../src/services/exports';
 import { runDueJobs } from '../src/worker';
+import { ROLE_PERMISSIONS } from '../../shared/roles';
 import { Client, createDemoUser, cubeStl, orgIdOf } from './helpers';
 import { api, csvObjects, mkKey, parseCsv, q } from './helpers6';
 
@@ -15,7 +16,7 @@ let app: FastifyInstance;
 let acmeId: string;
 let contosoId: string;
 let klineId: string;
-let admin: Client; // Acme admin (export.run, reveal_name, integration.manage)
+let admin: Client; // Acme admin (export.run, reveal_name; integration.manage is granted by beforeAll for these tests)
 let up: Client; // Acme uploader
 let aq: Client; // Acme quality
 let af: Client; // Acme finance (export.run, no reveal_name)
@@ -23,9 +24,10 @@ let av: Client; // Acme viewer
 let contoso: Client; // second active partner
 let owner: Client; // a partner that K Line has not approved yet
 let klAdmin: Client;
-let intake: Client;
-let kf: Client; // K Line finance (export.run, no reveal_name)
 let svcKey: string;
+
+// Captured at load time, before beforeAll grants the permission below: what a partner administrator really holds.
+const adminHeldIntegrationManage = ROLE_PERMISSIONS.admin.includes('integration.manage');
 
 const NAME = 'Zelda Quimby'; // synthetic patient name that must never show up where names are not allowed
 /** Runs every job that is due (runDueJobs alone stops after 100). */
@@ -37,6 +39,10 @@ let counter = 0;
 const uid = () => `P6-${Date.now().toString(36)}-${counter++}`;
 
 beforeAll(async () => {
+  // Partner administrators no longer hold integration.manage in production (nobody can reach API keys, webhooks or the Portal
+  // connection). The feature code stays, so the tests grant the permission to the partner administrator role for this run.
+  // The server evaluates permissions per request (auth/context.ts), so this takes effect at once.
+  if (!ROLE_PERMISSIONS.admin.includes('integration.manage')) ROLE_PERMISSIONS.admin.push('integration.manage');
   await seedDemo({ force: true });
   app = await buildApp({ logStream: new Writable({ write: (_c, _e, cb) => cb() }) });
   await app.ready();
@@ -54,8 +60,6 @@ beforeAll(async () => {
   contoso = await new Client(app).full('admin@contoso.demo');
   owner = await new Client(app).full('owner@contoso.demo');
   klAdmin = await new Client(app).full('admin@kline.demo');
-  intake = await new Client(app).full('intake@kline.demo');
-  kf = await new Client(app).full('finance@kline.demo');
   // a few cases in every state, with synthetic patient names
   await tx(SYSTEM, async (c) => {
     const make = async (caseId: string, name: string, status: string, site: string | null, extra: Record<string, unknown> = {}) => {
@@ -84,6 +88,14 @@ afterAll(async () => {
 
 // ---------------------------------------------------------------------------------------------------------------------
 describe('API keys', () => {
+  it('is not held by partner administrators by default', () => {
+    expect(adminHeldIntegrationManage).toBe(false);
+    expect(ROLE_PERMISSIONS.uploader).not.toContain('integration.manage');
+    expect(ROLE_PERMISSIONS.quality).not.toContain('integration.manage');
+    expect(ROLE_PERMISSIONS.finance).not.toContain('integration.manage');
+    expect(ROLE_PERMISSIONS.viewer).not.toContain('integration.manage');
+  });
+
   let created: { id: string; key: string; prefix: string; expiresAt: string };
 
   it('lists nothing secret and needs the right person', async () => {
@@ -95,7 +107,6 @@ describe('API keys', () => {
     // the people without integration.manage, and K Line staff, get nothing
     for (const c of [up, aq, af, av]) expect((await c.call('GET', '/api/api-keys')).status).toBe(403);
     expect((await klAdmin.call('GET', '/api/api-keys')).status).toBe(403);
-    expect((await intake.call('GET', '/api/api-keys')).status).toBe(403);
     expect((await api(app, null, 'GET', '/api/api-keys')).status).toBe(401);
   });
 
@@ -971,28 +982,27 @@ describe('exports', () => {
     }
   });
 
-  it('lets K Line finance, intake and administrators export for a chosen partner', async () => {
-    const r = await get(kf, `${range()}&orgId=${acmeId}`);
+  it('lets K Line administrators export for a chosen partner', async () => {
+    const r = await get(klAdmin, `${range()}&orgId=${acmeId}`);
     expect(r.status, r.res.body.slice(0, 200)).toBe(200);
     expect(csvObjects(r.res.body).every((x) => x.ref.startsWith('ACME-'))).toBe(true);
     // without a partner: everyone's rows
-    const all = csvObjects((await get(kf, range())).res.body);
+    const all = csvObjects((await get(klAdmin, range())).res.body);
     expect(all.some((x) => x.ref.startsWith('CONTOSO-'))).toBe(true);
     expect(all.some((x) => x.ref.startsWith('ACME-'))).toBe(true);
-    expect((await get(kf, `${range()}&orgId=${klineId}`)).status).toBe(404); // the K Line organisation has no partner cases
-    expect((await get(kf, `${range()}&orgId=00000000-0000-4000-8000-000000000000`)).status).toBe(404);
+    expect((await get(klAdmin, `${range()}&orgId=${klineId}`)).status).toBe(404); // the K Line organisation has no partner cases
+    expect((await get(klAdmin, `${range()}&orgId=00000000-0000-4000-8000-000000000000`)).status).toBe(404);
     // the partner sees K Line's export of its data in its own log
-    const financeId = (await q(`SELECT id FROM users WHERE email = 'finance@kline.demo'`))[0].id;
-    expect((await auditOf(acmeId, 'export.cases_csv')).some((e) => e.actor_id === financeId)).toBe(true);
+    const klAdminId = (await q(`SELECT id FROM users WHERE email = 'admin@kline.demo'`))[0].id;
+    expect((await auditOf(acmeId, 'export.cases_csv')).some((e) => e.actor_id === klAdminId)).toBe(true);
     const entries = (await admin.call('GET', '/api/audit?action=export.cases_csv&limit=200')).json.entries;
     expect(entries.some((e: any) => e.actorLabel === 'K Line staff')).toBe(true);
-    // names: permission first (finance has none), then a partner must be named, then a fresh code
-    expect((await get(kf, `${range()}&orgId=${acmeId}&include_names=1`)).status).toBe(403);
-    await q(`UPDATE sessions SET step_up_at = now() - interval '2 hours' WHERE user_id = (SELECT id FROM users WHERE email = 'intake@kline.demo')`);
-    expect((await get(intake, `${range()}&orgId=${acmeId}&include_names=1`)).json.code).toBe('step_up_required');
-    await fresh('intake@kline.demo');
-    expect((await get(intake, `${range()}&include_names=1`)).json.code).toBe('org_required');
-    const named = await get(intake, `${range()}&orgId=${acmeId}&include_names=1`);
+    // names: a partner must be named, then a fresh code
+    await q(`UPDATE sessions SET step_up_at = now() - interval '2 hours' WHERE user_id = (SELECT id FROM users WHERE email = 'admin@kline.demo')`);
+    expect((await get(klAdmin, `${range()}&orgId=${acmeId}&include_names=1`)).json.code).toBe('step_up_required');
+    await fresh('admin@kline.demo');
+    expect((await get(klAdmin, `${range()}&include_names=1`)).json.code).toBe('org_required');
+    const named = await get(klAdmin, `${range()}&orgId=${acmeId}&include_names=1`);
     expect(named.status).toBe(200);
     const log2 = await auditOf(acmeId, 'case.names_revealed');
     expect(log2[log2.length - 1].actor_type).toBe('user');
@@ -1038,7 +1048,7 @@ describe('permissions of the new routes', () => {
       ['POST', `/api/webhooks/${id}/test`, {}],
     ];
     // partner roles without integration.manage, and all of K Line, are refused before anything happens
-    for (const c of [up, aq, af, av, klAdmin, intake, kf]) {
+    for (const c of [up, aq, af, av, klAdmin]) {
       for (const [m, u, b] of routes) {
         const r = await c.call(m, u, b);
         expect(r.status, `${m} ${u}`).toBe(403);
@@ -1053,7 +1063,7 @@ describe('permissions of the new routes', () => {
       expect(r.status, `${m} ${u}`).toBe(404);
     }
     // the account preference is for everyone who is signed in, and only for people
-    for (const c of [up, aq, af, av, admin, klAdmin, intake]) expect((await c.call('GET', '/api/account/notifications')).status).toBe(200);
+    for (const c of [up, aq, af, av, admin, klAdmin]) expect((await c.call('GET', '/api/account/notifications')).status).toBe(200);
     expect((await api(app, null, 'GET', '/api/account/notifications')).status).toBe(401);
   });
 

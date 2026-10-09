@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { Writable } from 'node:stream';
 import type { FastifyInstance } from 'fastify';
+import { ROLE_PERMISSIONS } from '../../shared/roles';
 import { buildApp } from '../src/app';
 import { SYSTEM, closePools, tx } from '../src/db';
 import { config } from '../src/config';
@@ -19,7 +20,6 @@ let klineId: string;
 let admin: Client; // Acme admin
 let up: Client; // Acme uploader
 let klAdmin: Client;
-let intake: Client;
 let svcKey: string;
 
 const q = <T = any>(sql: string, params: unknown[] = []) => tx(SYSTEM, async (c) => (await c.query(sql, params)).rows as T[]);
@@ -46,6 +46,10 @@ const wrongRecovery = (c: Client) => c.call('POST', '/api/auth/mfa/recovery', { 
 const lockMinutes = (row: any) => (new Date(row.locked_until).getTime() - Date.now()) / 60_000;
 
 beforeAll(async () => {
+  // Partner administrators no longer hold integration.manage in production (nobody can reach the Portal connection or its
+  // receiver). The feature code stays, so the tests grant the permission to the partner administrator role for this run.
+  // Permissions are evaluated per request (auth/context.ts), so this takes effect at once.
+  if (!ROLE_PERMISSIONS.admin.includes('integration.manage')) ROLE_PERMISSIONS.admin.push('integration.manage');
   await seedDemo({ force: true });
   app = await buildApp({ logStream: quiet() });
   await app.ready();
@@ -54,7 +58,6 @@ beforeAll(async () => {
   admin = await new Client(app).full('admin@acme.demo');
   up = await new Client(app).full('upload@acme.demo');
   klAdmin = await new Client(app).full('admin@kline.demo');
-  intake = await new Client(app).full('intake@kline.demo');
   const k = await klAdmin.call('POST', '/api/service-keys', { name: 'Hardening factory system', scopes: ['mes:intake', 'mes:files', 'mes:events'], expiresInDays: 30 });
   expect(k.status, JSON.stringify(k.json)).toBe(201);
   svcKey = k.json.key;
@@ -269,16 +272,15 @@ describe('lock, reset and unlock', () => {
     expect(logged).toHaveLength(1);
     expect(logged[0]!.details).toMatchObject({ wasLocked: true });
     // another company's people are not found
-    const kline = (await klAdmin.call('GET', '/api/staff')).json.users.find((u: any) => u.email === 'intake@kline.demo');
+    const kline = (await klAdmin.call('GET', '/api/staff')).json.users.find((u: any) => u.email === 'admin@kline.demo');
     expect((await admin.call('POST', `/api/team/${kline.id}/unlock`, {})).status).toBe(404);
   });
 
   it('lets a K Line administrator unlock staff', async () => {
-    const email = await newUser(['kl_intake'], 'kline');
+    const email = await newUser(['kl_admin'], 'kline');
     const id = await userIdOf(email);
     await q(`UPDATE users SET locked_until = now() + interval '3 hours' WHERE id = $1`, [id]);
     expect((await klAdmin.call('GET', '/api/staff')).json.users.find((u: any) => u.id === id)).toMatchObject({ locked: true });
-    expect((await intake.call('POST', `/api/staff/${id}/unlock`, {})).status).toBe(403);
     const ok = await klAdmin.call('POST', `/api/staff/${id}/unlock`, {});
     expect(ok.status, JSON.stringify(ok.json)).toBe(200);
     expect((await userRow(email)).locked_until).toBeNull();
@@ -423,7 +425,7 @@ describe('a case on hold goes back to K Line review', () => {
   it('goes to submitted (never ready) after K Line put it on hold, keeps the resubmitted event, and K Line can route it', async () => {
     const made = await readyStandardCase(up);
     expect((await q('SELECT status FROM cases WHERE id = $1', [made.id]))[0].status).toBe('ready');
-    const hold = await intake.call('POST', `/api/cases/${made.id}/hold`, { reason: 'Please check the trim line.' });
+    const hold = await klAdmin.call('POST', `/api/cases/${made.id}/hold`, { reason: 'Please check the trim line.' });
     expect(hold.status, JSON.stringify(hold.json)).toBe(200);
     expect(hold.json.case.status).toBe('on_hold');
     const re = await up.call('POST', `/api/cases/${made.id}/submit`, { acknowledgeWarnings: true });
@@ -440,7 +442,7 @@ describe('a case on hold goes back to K Line review', () => {
     const hidden = await svcCall(app, svcKey, 'GET', '/api/mes/v1/intake?site=PT-CHV');
     expect(hidden.json.cases.map((c: any) => c.ref)).not.toContain(made.ref);
     // K Line is told, and routes it
-    const routed = await intake.call('POST', `/api/cases/${made.id}/route`, { siteCode: 'PT-CHV' });
+    const routed = await klAdmin.call('POST', `/api/cases/${made.id}/route`, { siteCode: 'PT-CHV' });
     expect(routed.status, JSON.stringify(routed.json)).toBe(200);
     expect(routed.json.case.status).toBe('ready');
   });
@@ -467,7 +469,7 @@ describe('a case on hold goes back to K Line review', () => {
     try {
       const made = await readyStandardCase(up);
       expect((await q('SELECT status FROM cases WHERE id = $1', [made.id]))[0].status).toBe('submitted');
-      const hold = await intake.call('POST', `/api/cases/${made.id}/hold`, { reason: 'Please add the second model.' });
+      const hold = await klAdmin.call('POST', `/api/cases/${made.id}/hold`, { reason: 'Please add the second model.' });
       expect(hold.status, JSON.stringify(hold.json)).toBe(200);
       const re = await up.call('POST', `/api/cases/${made.id}/submit`, { acknowledgeWarnings: true });
       expect(re.json.case.status).toBe('submitted');
@@ -649,7 +651,7 @@ describe('factory events make sense', () => {
     expect(mid.json.results[0]).toMatchObject({ outcome: 'ignored', message: 'Send SHIP before DELIVERED.' });
     expect((await row(made.id)).status).toBe('in_production');
     // the manual update by K Line follows the same rule
-    const manual = await intake.call('POST', `/api/cases/${made.id}/stage`, { stage: 'delivered' });
+    const manual = await klAdmin.call('POST', `/api/cases/${made.id}/stage`, { stage: 'delivered' });
     expect(manual.status).toBe(409);
     expect(manual.json.message).toBe('Send SHIP before DELIVERED.');
     // SHIP, then DELIVERED
@@ -813,7 +815,7 @@ describe('hidden text direction characters', () => {
     const ok = await admin.call('POST', '/api/materials', { sku: `OK-${Math.random().toString(36).slice(2, 6)}`, name: 'Arabic عربي box', category: 'box' });
     expect(ok.status, JSON.stringify(ok.json)).toBe(201);
     expect((await admin.call('PATCH', `/api/materials/${ok.json.material.id}`, { name: `Renamed${bidi}` })).json.code).toBe('invalid_text');
-    expect((await klAdmin.call('POST', '/api/staff/invite', { email: 'bidi@kline.demo', name: `Kay${bidi}`, roles: ['kl_intake'] })).json.code).toBe('invalid_text');
+    expect((await klAdmin.call('POST', '/api/staff/invite', { email: 'bidi@kline.demo', name: `Kay${bidi}`, roles: ['kl_admin'] })).json.code).toBe('invalid_text');
   });
 
   it('are refused in specification clauses, while a normal edit is accepted', async () => {
@@ -846,7 +848,7 @@ describe('quality claims', () => {
   beforeAll(async () => {
     quality = await new Client(app).full('quality@acme.demo');
     shipped = await readyStandardCase(up);
-    const s = await intake.call('POST', `/api/cases/${shipped.id}/stage`, { stage: 'shipped', carrier: 'DHL', trackingNumber: 'TRK-HARD-1', alignersShipped: 1 });
+    const s = await klAdmin.call('POST', `/api/cases/${shipped.id}/stage`, { stage: 'shipped', carrier: 'DHL', trackingNumber: 'TRK-HARD-1', alignersShipped: 1 });
     expect(s.status, JSON.stringify(s.json)).toBe(200);
   });
 

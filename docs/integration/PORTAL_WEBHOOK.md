@@ -18,7 +18,9 @@ The Hub reads only `type` and `uuid` from the body. Everything else is dropped w
 
 ## 2. Setting it up
 
-You need the permission `integration.manage` (company administrators have it), an approved company, your portal connection saved under **Portal connection**, and an address for the Hub that the portal can reach over https (section 4).
+You need the permission `integration.manage` (no partner role has it at the moment; a K Line administrator saves each partner's portal connection on the console page **Portal connection**), an approved company, a saved portal connection, and an address for the Hub that the portal can reach over https (section 4).
+
+The card in step 1 below is on the partner's own **Portal connection** page, which only people with `integration.manage` see. The console page of the same name (for K Line administrators) does not have the card, so with no partner role holding the permission nobody can create the address from the screen for now.
 
 In the Hub:
 

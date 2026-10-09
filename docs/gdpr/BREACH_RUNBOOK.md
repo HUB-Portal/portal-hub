@@ -61,9 +61,9 @@ The clock starts when K Line has a reasonable degree of certainty that a breach 
 |---|---|
 | A user account is compromised | Disable the user (Team or Staff): their sessions end at once. Reset the authenticator. Force a new password (password reset). Check recent entries for that actor. |
 | A session or device is unknown | The person can sign out other devices in **Account**. An administrator disabling the user revokes every session. |
-| A partner API key leaked | Revoke it in **ERP and API, API keys** (step up). It stops working at once. Check `case.names_revealed` and file reads by that key. |
+| A partner API key leaked | Revoke it in **ERP and API, API keys** (step up). This needs `integration.manage`, which no partner role holds at the moment, so there is no screen for it until that is decided. A revoked key stops working at once. Check `case.names_revealed` and file reads by that key. |
 | A K Line service key leaked | Revoke it in **Service keys**. Create a new one with an IP allow list. |
-| A webhook secret leaked | Rotate the secret (step up). Switch the webhook off if the endpoint is suspect. |
+| A webhook secret leaked | Rotate the secret (step up, needs `integration.manage`, same note as above). Switch the webhook off if the endpoint is suspect. |
 | A whole partner is compromised or abusive | Suspend the partner in **Partners**: sessions end and keys stop working. |
 | Registration abuse | Set `SIGNUP_ENABLED=false` and restart. Decline and delete suspicious registrations. |
 | A malicious file got through | Files flagged by the scanner are removed. Use the audit log to find downloads of the file by the factory system and staff. Tell the sites. |

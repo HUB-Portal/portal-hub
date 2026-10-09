@@ -15,7 +15,7 @@ const sha = (b: Buffer) => createHash('sha256').update(b).digest('hex');
 
 let app: FastifyInstance;
 let up: Client;
-let intake: Client;
+let klAdmin: Client;
 let acmeId: string;
 const keyBackup: Record<string, Buffer> = {};
 
@@ -66,7 +66,7 @@ beforeAll(async () => {
   await app.ready();
   acmeId = await orgIdOf('ACME');
   up = await new Client(app).full('upload@acme.demo');
-  intake = await new Client(app).full('intake@kline.demo');
+  klAdmin = await new Client(app).full('admin@kline.demo');
 
   // A standard case with a name, instructions and three files, shipped, plus a replacement child that shares the stored bytes.
   const c = await up.call('POST', '/api/cases', { caseId: 'ROT-1001', patientName: NAME, instructions: NOTES });
@@ -78,7 +78,7 @@ beforeAll(async () => {
   ids.fileIds = [f1.fileId, f2.fileId, f3.fileId];
   const sub = await up.call('POST', `/api/cases/${ids.caseId}/submit`, { acknowledgeWarnings: true });
   expect(sub.status, JSON.stringify(sub.json)).toBe(200);
-  const shipped = await intake.call('POST', `/api/cases/${ids.caseId}/stage`, { stage: 'shipped', carrier: 'DHL', trackingNumber: 'TRK-ROT-1', alignersShipped: 2 });
+  const shipped = await klAdmin.call('POST', `/api/cases/${ids.caseId}/stage`, { stage: 'shipped', carrier: 'DHL', trackingNumber: 'TRK-ROT-1', alignersShipped: 2 });
   expect(shipped.status, JSON.stringify(shipped.json)).toBe(200);
   const rep = await up.call('POST', `/api/cases/${ids.caseId}/replacement`, { items: [{ arch: 'upper', step: 1 }] });
   expect(rep.status, JSON.stringify(rep.json)).toBe(201);

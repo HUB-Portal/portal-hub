@@ -202,7 +202,8 @@ describe('sign in', () => {
     expect(body.password).toBe('Demo2026PartnerHub');
     const admin = body.accounts.find((a: any) => a.email === 'admin@kline.demo');
     expect(admin.code).toMatch(/^\d{6}$/);
-    expect(body.accounts.map((a: any) => a.email)).toEqual(expect.arrayContaining(['admin@acme.demo', 'upload@acme.demo', 'quality@acme.demo', 'finance@acme.demo', 'intake@kline.demo', 'chaves@kline.demo']));
+    expect(body.accounts.map((a: any) => a.email)).toEqual(expect.arrayContaining(['admin@acme.demo', 'upload@acme.demo', 'quality@acme.demo', 'finance@acme.demo', 'admin@kline.demo']));
+    expect(body.accounts.map((a: any) => a.email)).not.toEqual(expect.arrayContaining(['intake@kline.demo']));
     await resetTotpStep('admin@kline.demo');
     const c = new Client();
     await c.login('admin@kline.demo');

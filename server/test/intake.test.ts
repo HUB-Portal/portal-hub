@@ -18,7 +18,7 @@ let acmeId: string;
 let contosoId: string;
 let up: Client; // Acme uploader
 let admin: Client; // Acme admin
-let intake: Client; // K Line intake
+let intake: Client; // K Line administrator
 let contoso: Client;
 
 const q = <T = any>(sql: string, params: unknown[] = []) => tx(SYSTEM, async (c) => (await c.query(sql, params)).rows as T[]);
@@ -39,7 +39,7 @@ beforeAll(async () => {
   await createDemoUser(contosoId, 'admin@contoso.demo', 'Cora Contoso', ['admin']);
   up = await new Client(app).full('upload@acme.demo');
   admin = await new Client(app).full('admin@acme.demo');
-  intake = await new Client(app).full('intake@kline.demo');
+  intake = await new Client(app).full('admin@kline.demo');
   contoso = await new Client(app).full('admin@contoso.demo');
 });
 

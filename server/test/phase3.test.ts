@@ -18,10 +18,6 @@ let acmeId: string;
 let up: Client; // Acme uploader
 let admin: Client; // Acme admin
 let klAdmin: Client; // K Line administrator
-let intake: Client; // K Line intake
-let chaves: Client; // K Line production, site PT-CHV
-let quality: Client;
-let finance: Client;
 let svcKey: string;
 let partnerKey: string;
 
@@ -79,11 +75,6 @@ beforeAll(async () => {
   up = await new Client(app).full('upload@acme.demo');
   admin = await new Client(app).full('admin@acme.demo');
   klAdmin = await new Client(app).full('admin@kline.demo');
-  intake = await new Client(app).full('intake@kline.demo');
-  chaves = await new Client(app).full('chaves@kline.demo');
-  quality = await new Client(app).full('quality@kline.demo');
-  finance = await new Client(app).full('finance@kline.demo');
-  // chaves is a production user tied to PT-CHV in the seed
   const k = await klAdmin.call('POST', '/api/service-keys', { name: 'Test factory system', scopes: ['mes:intake', 'mes:files', 'mes:events'], expiresInDays: 30 });
   expect(k.status, JSON.stringify(k.json)).toBe(201);
   svcKey = k.json.key;
@@ -275,7 +266,7 @@ describe('the full factory flow', () => {
     // every active partner user is told, and only in their own organisation
     const both = await admin.call('GET', '/api/notifications');
     expect(both.json.unread).toBeGreaterThanOrEqual(5);
-    expect((await intake.call('GET', '/api/notifications')).json.items.find((x: any) => x.data?.ref === k.ref && x.kind === 'case_shipped')).toBeUndefined();
+    expect((await klAdmin.call('GET', '/api/notifications')).json.items.find((x: any) => x.data?.ref === k.ref && x.kind === 'case_shipped')).toBeUndefined();
     const first = n.json.items[0].id;
     const marked = await up.call('POST', '/api/notifications/read', { ids: [first] });
     expect(marked.json.marked).toBe(1);
@@ -331,7 +322,7 @@ describe('hold and cancel from the factory', () => {
     // Back to K Line for a review, never straight to ready: a held case cannot be pushed back into production by the partner.
     expect(re.json.case).toMatchObject({ status: 'submitted', holdReason: null, stage: null });
     expect((await up.call('GET', `/api/cases/${k.id}`)).json.events.map((e: any) => e.type)).toContain('resubmitted');
-    const again = await intake.call('POST', `/api/cases/${k.id}/route`, { siteCode: 'PT-CHV' });
+    const again = await klAdmin.call('POST', `/api/cases/${k.id}/route`, { siteCode: 'PT-CHV' });
     expect(again.status, JSON.stringify(again.json)).toBe(200);
     expect(again.json.case.status).toBe('ready');
     // a hold without a reason still gets a default reason
@@ -427,16 +418,16 @@ describe('stage map', () => {
 describe('manual stage update', () => {
   it('moves forward with an actor, books the shipment and refuses steps back', async () => {
     const k = await readyCase();
-    const s1 = await intake.call('POST', `/api/cases/${k.id}/stage`, { stage: 'printing', note: 'Started early' });
+    const s1 = await klAdmin.call('POST', `/api/cases/${k.id}/stage`, { stage: 'printing', note: 'Started early' });
     expect(s1.status, JSON.stringify(s1.json)).toBe(200);
     expect(s1.json.case).toMatchObject({ status: 'in_production', stage: 'printing' });
-    const back = await intake.call('POST', `/api/cases/${k.id}/stage`, { stage: 'received' });
+    const back = await klAdmin.call('POST', `/api/cases/${k.id}/stage`, { stage: 'received' });
     expect(back.status).toBe(409);
     expect(back.json.code).toBe('stage_not_allowed');
-    const noShip = await intake.call('POST', `/api/cases/${k.id}/stage`, { stage: 'shipped' });
+    const noShip = await klAdmin.call('POST', `/api/cases/${k.id}/stage`, { stage: 'shipped' });
     expect(noShip.status).toBe(400);
     expect(noShip.json.code).toBe('shipping_details_required');
-    const ship = await intake.call('POST', `/api/cases/${k.id}/stage`, { stage: 'shipped', carrier: 'FedEx', trackingNumber: 'FX123', alignersShipped: 24 });
+    const ship = await klAdmin.call('POST', `/api/cases/${k.id}/stage`, { stage: 'shipped', carrier: 'FedEx', trackingNumber: 'FX123', alignersShipped: 24 });
     expect(ship.status).toBe(200);
     expect(ship.json.case).toMatchObject({ status: 'shipped', carrier: 'FedEx', trackingNumber: 'FX123' });
     expect((await caseRow(k.id)).purge_after).toBeTruthy();
@@ -447,8 +438,8 @@ describe('manual stage update', () => {
     expect(e[0].data.note).toBe('Started early');
     // a draft or submitted case cannot be moved
     const draft = await newCase(up);
-    expect((await intake.call('POST', `/api/cases/${draft.id}/stage`, { stage: 'printing' })).status).toBe(409);
-    expect((await intake.call('POST', `/api/cases/${k.id}/stage`, { stage: 'teleport' })).status).toBe(400);
+    expect((await klAdmin.call('POST', `/api/cases/${draft.id}/stage`, { stage: 'printing' })).status).toBe(409);
+    expect((await klAdmin.call('POST', `/api/cases/${k.id}/stage`, { stage: 'teleport' })).status).toBe(400);
     // the audit trail names the case organisation
     const log = await admin.call('GET', '/api/audit?limit=100&action=case.stage');
     expect(log.json.entries.some((x: any) => x.targetId === k.id)).toBe(true);
@@ -472,41 +463,41 @@ describe('intake: route, hold and release', () => {
 
   it('lists the three tabs, routes a case and sets the due date', async () => {
     const c = await submittedCase();
-    const review = await intake.call('GET', '/api/intake?tab=review');
+    const review = await klAdmin.call('GET', '/api/intake?tab=review');
     expect(review.status).toBe(200);
     const item = review.json.items.find((x: any) => x.id === c.id);
     expect(item.orgName).toBe('Acme Aligners');
     expect(item.sites.map((s: any) => s.code)).toEqual(['EG-CFZ', 'PT-CHV']);
     expect(item.sites.every((s: any) => s.allowed === (s.code === 'PT-CHV'))).toBe(true); // Egypt needs SCCs for a partner in Portugal
     expect(JSON.stringify(review.json)).not.toMatch(/Alonso/);
-    const routed = await intake.call('POST', `/api/cases/${c.id}/route`, { siteCode: 'PT-CHV' });
+    const routed = await klAdmin.call('POST', `/api/cases/${c.id}/route`, { siteCode: 'PT-CHV' });
     expect(routed.status, JSON.stringify(routed.json)).toBe(200);
     expect(routed.json.case).toMatchObject({ status: 'ready', siteCode: 'PT-CHV' });
     expect(routed.json.case.dueDate).toMatch(/^\d{4}-\d{2}-\d{2}$/);
     const dow = new Date(routed.json.case.dueDate + 'T00:00:00Z').getUTCDay();
     expect([0, 6]).not.toContain(dow); // business days
-    expect((await intake.call('GET', '/api/intake?tab=ready')).json.items.some((x: any) => x.id === c.id)).toBe(true);
-    expect((await intake.call('GET', '/api/intake?tab=review')).json.items.some((x: any) => x.id === c.id)).toBe(false);
+    expect((await klAdmin.call('GET', '/api/intake?tab=ready')).json.items.some((x: any) => x.id === c.id)).toBe(true);
+    expect((await klAdmin.call('GET', '/api/intake?tab=review')).json.items.some((x: any) => x.id === c.id)).toBe(false);
     expect((await up.call('GET', `/api/cases/${c.id}`)).json.events.map((e: any) => e.type)).toContain('routed');
     // the partner is told
     expect((await up.call('GET', '/api/notifications')).json.items.some((n: any) => n.kind === 'case_routed' && n.data.ref === c.ref)).toBe(true);
     // routing again from ready re-routes without changing the dates; a bad tab is refused
-    expect((await intake.call('POST', `/api/cases/${c.id}/route`, { siteCode: 'PT-CHV' })).status).toBe(200);
-    expect((await intake.call('GET', '/api/intake?tab=nope')).status).toBe(400);
+    expect((await klAdmin.call('POST', `/api/cases/${c.id}/route`, { siteCode: 'PT-CHV' })).status).toBe(200);
+    expect((await klAdmin.call('GET', '/api/intake?tab=nope')).status).toBe(400);
   });
 
   it('refuses routing outside the EEA without SCCs, and to sites the partner does not have', async () => {
     const c = await submittedCase();
-    const blocked = await intake.call('POST', `/api/cases/${c.id}/route`, { siteCode: 'EG-CFZ' });
+    const blocked = await klAdmin.call('POST', `/api/cases/${c.id}/route`, { siteCode: 'EG-CFZ' });
     expect(blocked.status).toBe(403);
     expect(blocked.json.code).toBe('transfer_blocked');
     expect((await caseRow(c.id)).status).toBe('submitted');
-    const notTheirs = await intake.call('POST', `/api/cases/${c.id}/route`, { siteCode: 'MX-TIJ' });
+    const notTheirs = await klAdmin.call('POST', `/api/cases/${c.id}/route`, { siteCode: 'MX-TIJ' });
     expect(notTheirs.status).toBe(400);
     expect(notTheirs.json.code).toBe('invalid_site');
     await q(`INSERT INTO agreements (org_id, type, signed_at, signed_by) VALUES ($1, 'scc', current_date, 'Test')`, [acmeId]);
     try {
-      const ok = await intake.call('POST', `/api/cases/${c.id}/route`, { siteCode: 'EG-CFZ' });
+      const ok = await klAdmin.call('POST', `/api/cases/${c.id}/route`, { siteCode: 'EG-CFZ' });
       expect(ok.status, JSON.stringify(ok.json)).toBe(200);
       expect(ok.json.case.siteCode).toBe('EG-CFZ');
     } finally {
@@ -516,7 +507,7 @@ describe('intake: route, hold and release', () => {
     const c2 = await submittedCase();
     await q(`UPDATE sites SET active = false WHERE code = 'PT-CHV'`);
     try {
-      expect((await intake.call('POST', `/api/cases/${c2.id}/route`, { siteCode: 'PT-CHV' })).json.code).toBe('invalid_site');
+      expect((await klAdmin.call('POST', `/api/cases/${c2.id}/route`, { siteCode: 'PT-CHV' })).json.code).toBe('invalid_site');
     } finally {
       await q(`UPDATE sites SET active = true WHERE code = 'PT-CHV'`);
     }
@@ -524,11 +515,11 @@ describe('intake: route, hold and release', () => {
 
   it('holds a case with a reason, the partner resubmits, and a release sends it back to review', async () => {
     const c = await submittedCase();
-    expect((await intake.call('POST', `/api/cases/${c.id}/hold`, { reason: 'no' })).status).toBe(400);
-    const h = await intake.call('POST', `/api/cases/${c.id}/hold`, { reason: 'Trim line for the upper step 1 is open.' });
+    expect((await klAdmin.call('POST', `/api/cases/${c.id}/hold`, { reason: 'no' })).status).toBe(400);
+    const h = await klAdmin.call('POST', `/api/cases/${c.id}/hold`, { reason: 'Trim line for the upper step 1 is open.' });
     expect(h.status, JSON.stringify(h.json)).toBe(200);
     expect(h.json.case).toMatchObject({ status: 'on_hold', holdReason: 'Trim line for the upper step 1 is open.' });
-    expect((await intake.call('GET', '/api/intake?tab=hold')).json.items.some((x: any) => x.id === c.id)).toBe(true);
+    expect((await klAdmin.call('GET', '/api/intake?tab=hold')).json.items.some((x: any) => x.id === c.id)).toBe(true);
     const d = await up.call('GET', `/api/cases/${c.id}`);
     expect(d.json.case.holdReason).toBe('Trim line for the upper step 1 is open.');
     expect(d.json.events.find((e: any) => e.type === 'on_hold').sourceLabel).toBe('K Line');
@@ -545,70 +536,24 @@ describe('intake: route, hold and release', () => {
       await q(`UPDATE organizations SET settings = settings || '{"manual_review": false}'::jsonb WHERE id = $1`, [acmeId]);
     }
     // hold again, then release
-    expect((await intake.call('POST', `/api/cases/${c.id}/release`, {})).json.code).toBe('not_on_hold');
-    expect((await intake.call('POST', `/api/cases/${c.id}/hold`, { reason: 'Waiting for a call back.' })).status).toBe(200);
-    const rel = await intake.call('POST', `/api/cases/${c.id}/release`, {});
+    expect((await klAdmin.call('POST', `/api/cases/${c.id}/release`, {})).json.code).toBe('not_on_hold');
+    expect((await klAdmin.call('POST', `/api/cases/${c.id}/hold`, { reason: 'Waiting for a call back.' })).status).toBe(200);
+    const rel = await klAdmin.call('POST', `/api/cases/${c.id}/release`, {});
     expect(rel.status, JSON.stringify(rel.json)).toBe(200);
     expect(rel.json.case).toMatchObject({ status: 'submitted', holdReason: null, siteCode: null });
     const types = (await up.call('GET', `/api/cases/${c.id}`)).json.events.map((e: any) => e.type);
     expect(types).toEqual(expect.arrayContaining(['on_hold', 'released', 'resubmitted']));
-    // production staff cannot hold or route
-    expect((await chaves.call('POST', `/api/cases/${c.id}/hold`, { reason: 'Not allowed here' })).status).toBe(403);
-    expect((await chaves.call('POST', `/api/cases/${c.id}/route`, { siteCode: 'PT-CHV' })).status).toBe(403);
   });
 
   it('holds a case that is already at the factory, and the factory number stays', async () => {
     const k = await readyCase();
     await svc('POST', `/api/mes/v1/cases/${k.ref}/ack`, { mes_case_id: 'MES-HOLD-1' });
-    const h = await intake.call('POST', `/api/cases/${k.id}/hold`, { reason: 'Partner asked us to wait.' });
+    const h = await klAdmin.call('POST', `/api/cases/${k.id}/hold`, { reason: 'Partner asked us to wait.' });
     expect(h.status, JSON.stringify(h.json)).toBe(200);
     expect((await caseRow(k.id)).mes_case_id).toBe('MES-HOLD-1');
     // events for a case on hold are errors (the factory should not be working on it)
     const r = await svc('POST', '/api/mes/v1/events', { events: [ev('hh-1', k.ref, 'PRINT')] });
     expect(r.json.results[0]).toMatchObject({ outcome: 'error' });
-  });
-});
-
-describe('site scope for production staff', () => {
-  it('shows a production user only cases at their sites, everywhere', async () => {
-    const mine = await readyCase(); // PT-CHV, Acme default
-    const other = await readyCase();
-    await q(`UPDATE cases SET site_id = (SELECT id FROM sites WHERE code = 'EG-CFZ') WHERE id = $1`, [other.id]);
-
-    const list = await chaves.call('GET', '/api/console/cases?pageSize=100');
-    expect(list.status).toBe(200);
-    const ids = list.json.items.map((x: any) => x.id);
-    expect(ids).toContain(mine.id);
-    expect(ids).not.toContain(other.id);
-    expect(list.json.items.every((x: any) => x.siteCode === 'PT-CHV')).toBe(true);
-    // also through the partner style list, and a search for the other case's reference
-    expect((await chaves.call('GET', '/api/cases?pageSize=100')).json.items.every((x: any) => x.siteCode === 'PT-CHV')).toBe(true);
-    expect((await chaves.call('GET', `/api/console/cases?search=${other.ref}`)).json.total).toBe(0);
-    // the same user cannot ask for the other site
-    expect((await chaves.call('GET', '/api/console/cases?siteCode=EG-CFZ&pageSize=100')).json.total).toBe(0);
-
-    expect((await chaves.call('GET', `/api/console/cases/${mine.id}`)).status).toBe(200);
-    expect((await chaves.call('GET', `/api/console/cases/${other.id}`)).status).toBe(404);
-    expect((await chaves.call('GET', `/api/cases/${other.id}`)).status).toBe(404);
-    // files and downloads
-    expect((await chaves.call('GET', `/api/files/${mine.files.u1.id}/download`)).status).toBe(200);
-    expect((await chaves.call('GET', `/api/files/${other.files.u1.id}/download`)).status).toBe(404);
-    expect((await chaves.call('GET', `/api/files/${other.files.u1.id}`)).status).toBe(404);
-    expect((await chaves.call('GET', `/api/cases/${other.id}/package.zip`)).status).toBe(404);
-    expect((await chaves.call('POST', `/api/cases/${other.id}/reveal-name`, {})).status).toBe(404);
-    expect((await chaves.call('GET', `/api/cases/${other.id}/bags.csv`)).status).toBe(404);
-    // manual stage
-    expect((await chaves.call('POST', `/api/cases/${other.id}/stage`, { stage: 'printing' })).status).toBe(404);
-    const ok = await chaves.call('POST', `/api/cases/${mine.id}/stage`, { stage: 'printing' });
-    expect(ok.status, JSON.stringify(ok.json)).toBe(200);
-    // the unscoped intake user sees both
-    expect((await intake.call('GET', `/api/console/cases/${other.id}`)).status).toBe(200);
-    // tiles only count the user's sites
-    const ov = await chaves.call('GET', '/api/console/overview');
-    expect(ov.json.siteLoad.map((s: any) => s.siteCode)).toEqual(['PT-CHV']);
-    expect(ov.json.partners).toEqual([]);
-    const ovAll = await intake.call('GET', '/api/console/overview');
-    expect(ovAll.json.siteLoad.length).toBeGreaterThan(1);
   });
 });
 
@@ -680,50 +625,45 @@ describe('service keys and partner keys stay apart', () => {
 });
 
 describe('permissions are checked on every route', () => {
-  it('lets each staff role do only what its permissions allow', async () => {
+  it('lets K Line administrators and each partner role do only what their permissions allow', async () => {
     const someCase = (await q<{ id: string }>(`SELECT id FROM cases WHERE status = 'ready' LIMIT 1`))[0]!.id;
     const partnerId = acmeId;
     type Row = [string, string, unknown, Record<string, number>];
     // [method, url, body, expected status per client name]; 403 means refused by permission
     const table: Row[] = [
-      ['GET', '/api/console/overview', undefined, { intake: 200, chaves: 200, quality: 200, finance: 200, klAdmin: 200, admin: 403, up: 403 }],
-      ['GET', '/api/console/cases', undefined, { intake: 200, chaves: 200, quality: 200, finance: 200, klAdmin: 200, admin: 403, up: 403 }],
-      ['GET', '/api/intake', undefined, { intake: 200, chaves: 403, quality: 403, finance: 403, klAdmin: 200, admin: 403, up: 403 }],
-      ['GET', '/api/service-keys', undefined, { intake: 403, chaves: 403, quality: 403, finance: 403, klAdmin: 200, admin: 403, up: 403 }],
-      ['GET', '/api/staff', undefined, { intake: 403, chaves: 403, quality: 403, finance: 403, klAdmin: 200, admin: 403, up: 403 }],
-      ['GET', '/api/sites', undefined, { intake: 403, chaves: 403, quality: 403, finance: 403, klAdmin: 200, admin: 403, up: 403 }],
-      ['GET', '/api/partners', undefined, { intake: 403, chaves: 403, quality: 403, finance: 403, klAdmin: 200, admin: 403, up: 403 }],
-      ['GET', `/api/partners/${partnerId}`, undefined, { intake: 403, chaves: 403, quality: 403, finance: 403, klAdmin: 200, admin: 403, up: 403 }],
-      ['GET', '/api/mes/stage-map', undefined, { intake: 403, chaves: 403, quality: 403, finance: 403, klAdmin: 200, admin: 403, up: 403 }],
-      ['GET', '/api/mes/events', undefined, { intake: 403, chaves: 403, quality: 403, finance: 403, klAdmin: 200, admin: 403, up: 403 }],
-      ['POST', '/api/mes/events/import', { csv: 'stage_code,occurred_at\nPRINT,2026-01-01' }, { intake: 403, chaves: 403, quality: 403, finance: 403, admin: 403, up: 403 }],
-      ['GET', '/api/audit/verify', undefined, { intake: 403, chaves: 403, quality: 403, finance: 403, klAdmin: 200, admin: 403, up: 403 }],
-      ['POST', `/api/cases/${someCase}/stage`, { stage: 'nonsense' }, { intake: 400, chaves: 400, quality: 403, finance: 403, klAdmin: 400, admin: 403, up: 403 }],
-      ['GET', `/api/cases/${someCase}/bags.csv`, undefined, { intake: 200, chaves: 200, quality: 200, finance: 403, klAdmin: 200, admin: 403, up: 403 }],
-      ['GET', '/api/notifications', undefined, { intake: 200, chaves: 200, quality: 200, finance: 200, klAdmin: 200, admin: 200, up: 200 }],
+      ['GET', '/api/console/overview', undefined, { klAdmin: 200, admin: 403, up: 403 }],
+      ['GET', '/api/console/cases', undefined, { klAdmin: 200, admin: 403, up: 403 }],
+      ['GET', '/api/intake', undefined, { klAdmin: 200, admin: 403, up: 403 }],
+      ['GET', '/api/service-keys', undefined, { klAdmin: 200, admin: 403, up: 403 }],
+      ['GET', '/api/staff', undefined, { klAdmin: 200, admin: 403, up: 403 }],
+      ['GET', '/api/sites', undefined, { klAdmin: 200, admin: 403, up: 403 }],
+      ['GET', '/api/partners', undefined, { klAdmin: 200, admin: 403, up: 403 }],
+      ['GET', `/api/partners/${partnerId}`, undefined, { klAdmin: 200, admin: 403, up: 403 }],
+      ['GET', '/api/mes/stage-map', undefined, { klAdmin: 200, admin: 403, up: 403 }],
+      ['GET', '/api/mes/events', undefined, { klAdmin: 200, admin: 403, up: 403 }],
+      ['POST', '/api/mes/events/import', { csv: 'stage_code,occurred_at\nPRINT,2026-01-01' }, { admin: 403, up: 403 }],
+      ['GET', '/api/audit/verify', undefined, { klAdmin: 200, admin: 403, up: 403 }],
+      ['POST', `/api/cases/${someCase}/stage`, { stage: 'nonsense' }, { klAdmin: 400, admin: 403, up: 403 }],
+      ['GET', `/api/cases/${someCase}/bags.csv`, undefined, { klAdmin: 200, admin: 403, up: 403 }],
+      ['GET', '/api/notifications', undefined, { klAdmin: 200, admin: 200, up: 200 }],
     ];
-    const clients: Record<string, Client> = { intake, chaves, quality, finance, klAdmin, admin, up };
+    const clients: Record<string, Client> = { klAdmin, admin, up };
     for (const [m, u, body, expected] of table) {
       for (const [name, code] of Object.entries(expected)) {
         const r = await clients[name]!.call(m, u, body);
-        // chaves is tied to PT-CHV: a case at another site is a 404 for the scoped reads
-        if (u.endsWith('bags.csv') && name === 'chaves' && r.status === 404) continue;
         expect(r.status, `${name} ${m} ${u}`).toBe(code);
       }
     }
     // partner admins can neither write staff nor sites
     expect((await admin.call('POST', '/api/staff/invite', { email: 'x@kline.demo', name: 'X', roles: ['kl_admin'] })).status).toBe(403);
     expect((await admin.call('POST', '/api/sites', { code: 'DE-BER', name: 'Berlin', country: 'DE' })).status).toBe(403);
-    expect((await intake.call('POST', '/api/sites', { code: 'DE-BER', name: 'Berlin', country: 'DE' })).status).toBe(403);
-    expect((await finance.call('POST', `/api/partners/${partnerId}/suspend`, {})).status).toBe(403);
-    expect((await quality.call('PUT', '/api/mes/stage-map', { items: [{ code: 'A', target: 'received' }] })).status).toBe(403);
   });
 
   it('does not let a partner user see K Line staff or other people through the staff routes', async () => {
     const r = await admin.call('GET', '/api/team');
     expect(r.status).toBe(200);
     expect(r.json.users.every((u: any) => /@acme\.demo$/.test(u.email))).toBe(true);
-    const staffUser = (await q<{ id: string }>(`SELECT id FROM users WHERE email = 'finance@kline.demo'`))[0]!.id;
+    const staffUser = (await q<{ id: string }>(`SELECT id FROM users WHERE email = 'admin@kline.demo'`))[0]!.id;
     await admin.stepUp('admin@acme.demo');
     expect((await admin.call('POST', `/api/team/${staffUser}/disable`, {})).status).toBe(404);
     expect((await admin.call('POST', `/api/team/${staffUser}/roles`, { roles: ['admin'] })).status).toBe(404);
@@ -733,13 +673,13 @@ describe('permissions are checked on every route', () => {
 describe('audit entries for K Line access are visible to the partner', () => {
   it('records downloads, name reveals, case views and name searches against the partner organisation', async () => {
     const k = await readyCase();
-    const dl = await intake.call('GET', `/api/files/${k.files.u1.id}/download`);
+    const dl = await klAdmin.call('GET', `/api/files/${k.files.u1.id}/download`);
     expect(dl.status).toBe(200);
     expect(Buffer.compare(dl.res.rawPayload, k.files.u1.data)).toBe(0);
-    expect((await intake.call('POST', `/api/cases/${k.id}/reveal-name`, {})).json.patientName).toBe(NAME);
-    expect((await intake.call('GET', `/api/console/cases/${k.id}`)).status).toBe(200);
-    expect((await intake.call('GET', `/api/console/cases?search=${encodeURIComponent(NAME)}`)).json.items.some((x: any) => x.id === k.id)).toBe(true);
-    const pkg = await intake.call('GET', `/api/cases/${k.id}/package.zip`);
+    expect((await klAdmin.call('POST', `/api/cases/${k.id}/reveal-name`, {})).json.patientName).toBe(NAME);
+    expect((await klAdmin.call('GET', `/api/console/cases/${k.id}`)).status).toBe(200);
+    expect((await klAdmin.call('GET', `/api/console/cases?search=${encodeURIComponent(NAME)}`)).json.items.some((x: any) => x.id === k.id)).toBe(true);
+    const pkg = await klAdmin.call('GET', `/api/cases/${k.id}/package.zip`);
     expect(pkg.status).toBe(200);
 
     const log = (await admin.call('GET', '/api/audit?limit=200')).json.entries as any[];
@@ -754,7 +694,7 @@ describe('audit entries for K Line access are visible to the partner', () => {
     expect(log.filter((e) => e.action === 'file.download' && e.details?.caseId === k.id).every((e) => e.actorLabel === 'K Line staff')).toBe(true);
     expect(JSON.stringify(log)).not.toMatch(/Alonso/);
     // and a repeat view within ten minutes adds nothing
-    await intake.call('GET', `/api/console/cases/${k.id}`);
+    await klAdmin.call('GET', `/api/console/cases/${k.id}`);
     const again = (await admin.call('GET', '/api/audit?limit=200&action=case.viewed')).json.entries.filter((e: any) => e.targetId === k.id);
     expect(again.length).toBe(1);
     // partner staff opening their own case are not logged as K Line access
@@ -782,7 +722,7 @@ describe('bag labels', () => {
 
     const k = await readyCase();
     // default layout: the CSV holds one row per bag and no personal data
-    const csv = await intake.call('GET', `/api/cases/${k.id}/bags.csv`);
+    const csv = await klAdmin.call('GET', `/api/cases/${k.id}/bags.csv`);
     expect(csv.status).toBe(200);
     expect(csv.res.headers['content-type']).toMatch(/text\/csv/);
     expect(csv.res.headers['content-disposition']).toContain(`${k.ref}-bags.csv`);
@@ -805,7 +745,7 @@ describe('bag labels', () => {
     expect(saved.json.printsPersonalData).toBe(true);
     try {
       // the bag file for staff has the name (audited as a name reveal) ...
-      const named = await intake.call('GET', `/api/cases/${k.id}/bags.csv`);
+      const named = await klAdmin.call('GET', `/api/cases/${k.id}/bags.csv`);
       expect(named.res.body).toContain(NAME);
       const log = (await admin.call('GET', '/api/audit?limit=200')).json.entries as any[];
       expect(log.some((e) => e.action === 'case.bags_csv' && e.details.personalData === true && e.details.ref === k.ref)).toBe(true);
@@ -849,25 +789,27 @@ describe('sites, staff and partners', () => {
   it('invites and manages staff with step up', async () => {
     const fresh = await new Client(app).full('admin@kline.demo');
     await expireStepUp('admin@kline.demo');
-    const noStep = await fresh.call('POST', '/api/staff/invite', { email: 'new.staff@kline.demo', name: 'Nina New', roles: ['kl_production'] });
+    const noStep = await fresh.call('POST', '/api/staff/invite', { email: 'new.staff@kline.demo', name: 'Nina New', roles: ['kl_admin'] });
     expect(noStep.json.code).toBe('step_up_required');
     await fresh.stepUp('admin@kline.demo');
-    const sites = await q<{ id: string }>(`SELECT id FROM sites WHERE code = 'PT-CHV'`);
-    const inv = await fresh.call('POST', '/api/staff/invite', { email: 'new.staff@kline.demo', name: 'Nina New', roles: ['kl_production'], siteIds: [sites[0]!.id] });
+    const inv = await fresh.call('POST', '/api/staff/invite', { email: 'new.staff@kline.demo', name: 'Nina New', roles: ['kl_admin'] });
     expect(inv.status, JSON.stringify(inv.json)).toBe(201);
-    expect((await fresh.call('POST', '/api/staff/invite', { email: 'new.staff@kline.demo', name: 'Again', roles: ['kl_intake'] })).status).toBe(409);
+    expect((await fresh.call('POST', '/api/staff/invite', { email: 'new.staff@kline.demo', name: 'Again', roles: ['kl_admin'] })).status).toBe(409);
     expect((await fresh.call('POST', '/api/staff/invite', { email: 'partner.role@kline.demo', name: 'Wrong', roles: ['admin'] })).status).toBe(400);
-    expect((await fresh.call('POST', '/api/staff/invite', { email: 'bad.site@kline.demo', name: 'Wrong', roles: ['kl_intake'], siteIds: ['00000000-0000-4000-8000-000000000000'] })).json.code).toBe('invalid_site');
+    // the old K Line staff roles no longer exist: an administrator is the only K Line role
+    expect((await fresh.call('POST', '/api/staff/invite', { email: 'old.role@kline.demo', name: 'Wrong', roles: ['kl_intake'] })).status).toBe(400);
+    expect((await fresh.call('POST', '/api/staff/invite', { email: 'bad.site@kline.demo', name: 'Wrong', roles: ['kl_admin'], siteIds: ['00000000-0000-4000-8000-000000000000'] })).json.code).toBe('invalid_site');
     const staff = await fresh.call('GET', '/api/staff');
     const nina = staff.json.users.find((u: any) => u.email === 'new.staff@kline.demo');
-    expect(nina).toMatchObject({ status: 'invited', roles: ['kl_production'], siteCodes: ['PT-CHV'] });
+    expect(nina).toMatchObject({ status: 'invited', roles: ['kl_admin'], siteCodes: [] });
     expect(staff.json.users.every((u: any) => /@kline\.demo$/.test(u.email))).toBe(true);
     expect(staff.json.users.find((u: any) => u.email === 'admin@kline.demo').isYou).toBe(true);
     const mail = await q(`SELECT payload FROM jobs WHERE kind = 'email.send' AND payload->>'to' = 'new.staff@kline.demo'`);
     expect(mail.length).toBe(1);
 
-    expect((await fresh.call('POST', `/api/staff/${nina.id}/roles`, { roles: ['kl_intake'], siteIds: [] })).status).toBe(200);
-    expect((await q(`SELECT roles, site_ids FROM users WHERE id = $1`, [nina.id]))[0]).toMatchObject({ roles: ['kl_intake'], site_ids: [] });
+    expect((await fresh.call('POST', `/api/staff/${nina.id}/roles`, { roles: ['kl_intake'] })).status).toBe(400);
+    expect((await fresh.call('POST', `/api/staff/${nina.id}/roles`, { roles: ['kl_admin'], siteIds: [] })).status).toBe(200);
+    expect((await q(`SELECT roles, site_ids FROM users WHERE id = $1`, [nina.id]))[0]).toMatchObject({ roles: ['kl_admin'], site_ids: [] });
     expect((await fresh.call('POST', `/api/staff/${nina.id}/disable`, {})).status).toBe(200);
     expect((await fresh.call('POST', `/api/staff/${nina.id}/enable`, {})).status).toBe(200);
     expect((await fresh.call('POST', `/api/staff/${nina.id}/reset-mfa`, {})).status).toBe(200);
@@ -878,8 +820,8 @@ describe('sites, staff and partners', () => {
     const other = await q<{ id: string }>(`SELECT id FROM users WHERE email = 'upload@acme.demo'`);
     expect((await fresh.call('POST', `/api/staff/${other[0]!.id}/disable`, {})).status).toBe(404);
     const otherAdmin = await createDemoUser(await orgIdOf('KLINE'), 'second.admin@kline.demo', 'Second Admin', ['kl_admin']);
-    expect((await fresh.call('POST', `/api/staff/${otherAdmin}/roles`, { roles: ['kl_finance'] })).status).toBe(200);
-    expect((await q('SELECT roles FROM users WHERE id = $1', [otherAdmin]))[0].roles).toEqual(['kl_finance']);
+    expect((await fresh.call('POST', `/api/staff/${otherAdmin}/roles`, { roles: ['kl_finance'] })).status).toBe(400);
+    expect((await q('SELECT roles FROM users WHERE id = $1', [otherAdmin]))[0].roles).toEqual(['kl_admin']);
   });
 
   it('gives K Line a minimal partner console with gates, agreements, sites and activation', async () => {
@@ -948,7 +890,6 @@ describe('audit verification', () => {
     expect(r.status, JSON.stringify(r.json)).toBe(200);
     expect(r.json).toMatchObject({ ok: true, firstBadSeq: null });
     expect(r.json.checked).toBeGreaterThan(50);
-    expect((await intake.call('GET', '/api/audit/verify')).status).toBe(403);
     expect((await admin.call('GET', '/api/audit/verify')).status).toBe(403);
     // the app role still cannot call the owner only functions
     await expect(tx(SYSTEM, (c) => c.query('SELECT * FROM kph_audit_verify()'))).rejects.toMatchObject({ code: '42501' });

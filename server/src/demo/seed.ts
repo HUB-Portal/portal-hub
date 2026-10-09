@@ -34,10 +34,6 @@ const SITES = [
 
 const KLINE_USERS = [
   { email: 'admin@kline.demo', name: 'Katrin Admin', roles: ['kl_admin'], site: null },
-  { email: 'intake@kline.demo', name: 'Ingo Intake', roles: ['kl_intake'], site: null },
-  { email: 'chaves@kline.demo', name: 'Carla Chaves', roles: ['kl_production'], site: 'PT-CHV' },
-  { email: 'quality@kline.demo', name: 'Quentin Quality', roles: ['kl_quality'], site: null },
-  { email: 'finance@kline.demo', name: 'Fiona Finance', roles: ['kl_finance'], site: null },
 ];
 
 const ACME_USERS = [
@@ -105,7 +101,7 @@ async function seedLogo(c: PoolClient, orgId: string, label: string, colour: str
 async function seedPhase4(c: PoolClient, acmeId: string, klineId: string, siteIds: Record<string, string>): Promise<void> {
   const user = async (email: string) => (await c.query('SELECT id, name FROM users WHERE email = $1', [email])).rows[0] as { id: string; name: string };
   const acmeQuality = await user('quality@acme.demo');
-  const klQuality = await user('quality@kline.demo');
+  const klAdmin = await user('admin@kline.demo');
 
   const v1 = defaultSpecContent();
   const h1 = await hashSpec(v1);
@@ -114,7 +110,7 @@ async function seedPhase4(c: PoolClient, acmeId: string, klineId: string, siteId
                         partner_signed_by, partner_signed_name, partner_signed_at, kline_signed_by, kline_signed_name, kline_signed_at, activated_at)
      VALUES ($1, 1, 'Production specification', $2::jsonb, $3, 'First version', 'kline', 'active', $4, $4, now() - interval '30 days',
              $5, $6, now() - interval '29 days', $4, $7, now() - interval '29 days', now() - interval '29 days')`,
-    [acmeId, JSON.stringify(v1), h1, klQuality.id, acmeQuality.id, acmeQuality.name, klQuality.name],
+    [acmeId, JSON.stringify(v1), h1, klAdmin.id, acmeQuality.id, acmeQuality.name, klAdmin.name],
   );
   await c.query(`UPDATE organizations SET settings = jsonb_set(COALESCE(settings, '{}'::jsonb), '{bag}', $2::jsonb, true) WHERE id = $1`, [acmeId, JSON.stringify(v1.bag)]);
 
@@ -124,7 +120,7 @@ async function seedPhase4(c: PoolClient, acmeId: string, klineId: string, siteId
   await c.query(
     `INSERT INTO specs (org_id, version, title, content, content_hash, change_note, created_side, status, created_by, proposed_by, proposed_at)
      VALUES ($1, 2, 'Production specification', $2::jsonb, $3, 'Adds a final inspection step and clarifies distal trim', 'kline', 'proposed', $4, $4, now() - interval '1 day')`,
-    [acmeId, JSON.stringify(v2), await hashSpec(v2), klQuality.id],
+    [acmeId, JSON.stringify(v2), await hashSpec(v2), klAdmin.id],
   );
 
   const mat = async (sku: string, name: string, category: string, perCase: number, perAligner: number, minStock: number) =>
@@ -146,7 +142,7 @@ async function seedPhase4(c: PoolClient, acmeId: string, klineId: string, siteId
     for (const [m, q] of lines) {
       await c.query(`INSERT INTO material_shipment_lines (org_id, shipment_id, material_id, quantity, received_quantity) VALUES ($1, $2, $3, $4, $5)`, [acmeId, sh, m, q, status === 'received' ? q : null]);
       if (status === 'received') {
-        await c.query(`INSERT INTO material_movements (org_id, material_id, site_id, kind, quantity, shipment_id, actor_id, created_at) VALUES ($1, $2, $3, 'receipt', $4, $5, $6, now() - interval '8 days')`, [acmeId, m, siteIds['PT-CHV'], q, sh, klQuality.id]);
+        await c.query(`INSERT INTO material_movements (org_id, material_id, site_id, kind, quantity, shipment_id, actor_id, created_at) VALUES ($1, $2, $3, 'receipt', $4, $5, $6, now() - interval '8 days')`, [acmeId, m, siteIds['PT-CHV'], q, sh, klAdmin.id]);
       }
     }
   };

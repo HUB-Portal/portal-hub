@@ -2,6 +2,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { Writable } from 'node:stream';
 import type { FastifyInstance } from 'fastify';
 import { unzipSync } from 'fflate';
+import { ROLE_PERMISSIONS } from '../../shared/roles';
 import { buildApp } from '../src/app';
 import { SYSTEM, closePools, tx } from '../src/db';
 import { seedDemo } from '../src/demo/seed';
@@ -19,6 +20,10 @@ const fake = new FakePortalClient();
 const q = <T = any>(sql: string, params: unknown[] = []) => tx(SYSTEM, async (c) => (await c.query(sql, params)).rows as T[]);
 
 beforeAll(async () => {
+  // Partner administrators no longer hold integration.manage in production (nobody can reach the Portal connection). The feature
+  // code stays, so the tests grant the permission to the partner administrator role for this run. Permissions are evaluated
+  // per request (auth/context.ts), so this takes effect at once.
+  if (!ROLE_PERMISSIONS.admin.includes('integration.manage')) ROLE_PERMISSIONS.admin.push('integration.manage');
   await seedDemo({ force: true });
   app = await buildApp({ logStream: new Writable({ write: (_c, _e, cb) => cb() }) });
   await app.ready();
@@ -409,14 +414,13 @@ describe('portal credentials', () => {
     expect((await up.call('POST', '/api/org/portal-api/test', {})).status).toBe(403);
   });
 
-  it('can be set and tested for a partner by a K Line administrator, and by nobody else at K Line', async () => {
+  it('can be set and tested for a partner by a K Line administrator', async () => {
     const klAdmin = await new Client(app).full('admin@kline.demo');
-    const intake = await new Client(app).full('intake@kline.demo');
     const url = `/api/partners/${acmeId}/portal-api`;
     const body = { baseUrl: 'https://portal.example.org/', apiKey: 'staff-set-api-key-value-1234567890', userUuid: '123e4567-e89b-12d3-a456-426614174001' };
 
-    // only kl_admin (admin.partners); partners are refused too
-    for (const c of [intake, admin, up]) {
+    // only kl_admin (admin.partners); partners are refused
+    for (const c of [admin, up]) {
       expect((await c.call('GET', '/api/partners/portal-connections')).status).toBe(403);
       expect((await c.call('GET', url)).status).toBe(403);
       expect((await c.call('PUT', url, body)).status).toBe(403);

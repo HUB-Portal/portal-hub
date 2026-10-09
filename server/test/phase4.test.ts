@@ -26,11 +26,7 @@ let af: Client; // Acme finance
 let av: Client; // Acme viewer
 let contoso: Client;
 let klAdmin: Client;
-let intake: Client;
-let chaves: Client; // K Line production tied to PT-CHV
-let kq: Client; // K Line quality
-let kq2: Client;
-let kf: Client;
+let kl2: Client; // a second K Line administrator
 let svcKey: string;
 const hooks: HookCall[] = [];
 
@@ -87,7 +83,7 @@ async function readyCase() {
 type Ready = Awaited<ReturnType<typeof readyCase>>;
 
 async function ship(id: string, n = 3) {
-  const r = await intake.call('POST', `/api/cases/${id}/stage`, { stage: 'shipped', carrier: 'DHL', trackingNumber: `TRK-${Math.random().toString(36).slice(2, 8)}`, alignersShipped: n });
+  const r = await klAdmin.call('POST', `/api/cases/${id}/stage`, { stage: 'shipped', carrier: 'DHL', trackingNumber: `TRK-${Math.random().toString(36).slice(2, 8)}`, alignersShipped: n });
   expect(r.status, JSON.stringify(r.json)).toBe(200);
 }
 
@@ -124,7 +120,7 @@ beforeAll(async () => {
   await q(`INSERT INTO agreements (org_id, type, signed_at, signed_by) VALUES ($1, 'dpa', current_date, 'Cora Contoso')`, [contosoId]);
   await createDemoUser(acmeId, 'viewer@acme.demo', 'Vic Viewer', ['viewer']);
   await createDemoUser(acmeId, 'quality2@acme.demo', 'Quincy Quality', ['quality']);
-  await createDemoUser(klineId, 'quality2@kline.demo', 'Kim Quality', ['kl_quality']);
+  await createDemoUser(klineId, 'admin2@kline.demo', 'Kim Admin', ['kl_admin']);
   up = await new Client(app).full('upload@acme.demo');
   admin = await new Client(app).full('admin@acme.demo');
   aq = await new Client(app).full('quality@acme.demo');
@@ -133,11 +129,7 @@ beforeAll(async () => {
   av = await new Client(app).full('viewer@acme.demo');
   contoso = await new Client(app).full('admin@contoso.demo');
   klAdmin = await new Client(app).full('admin@kline.demo');
-  intake = await new Client(app).full('intake@kline.demo');
-  chaves = await new Client(app).full('chaves@kline.demo');
-  kq = await new Client(app).full('quality@kline.demo');
-  kq2 = await new Client(app).full('quality2@kline.demo');
-  kf = await new Client(app).full('finance@kline.demo');
+  kl2 = await new Client(app).full('admin2@kline.demo');
   const k = await klAdmin.call('POST', '/api/service-keys', { name: 'Phase 4 factory system', scopes: ['mes:intake', 'mes:files', 'mes:events'], expiresInDays: 30 });
   expect(k.status, JSON.stringify(k.json)).toBe(201);
   svcKey = k.json.key;
@@ -169,8 +161,8 @@ describe('production specification', () => {
     expect(def.json.contentHash).toBe(await hashSpec(defaultSpecContent()));
     expect(def.json.content.bag.lines.length).toBeGreaterThan(0);
     // K Line staff must say which partner they mean
-    expect((await kq.call('GET', '/api/specs')).status).toBe(400);
-    expect((await kq.call('GET', '/api/specs')).json.code).toBe('org_required');
+    expect((await klAdmin.call('GET', '/api/specs')).status).toBe(400);
+    expect((await klAdmin.call('GET', '/api/specs')).json.code).toBe('org_required');
   });
 
   it('gives cases submitted before any specification no spec version', async () => {
@@ -204,7 +196,7 @@ describe('production specification', () => {
   });
 
   it('keeps a draft private to the side that started it', async () => {
-    expect((await kq.call('GET', `/api/console/specs/${v1}`)).status).toBe(404);
+    expect((await klAdmin.call('GET', `/api/console/specs/${v1}`)).status).toBe(404);
     expect((await klAdmin.call('GET', `/api/specs/${v1}`)).status).toBe(404);
     expect((await klAdmin.call('GET', `/api/console/specs?orgId=${acmeId}`)).json.items).toEqual([]);
     expect((await klAdmin.call('PUT', `/api/console/specs/${v1}`, { content: defaultSpecContent() })).status).toBe(404);
@@ -237,30 +229,30 @@ describe('production specification', () => {
   it('activates once both sides have signed, with different people, and never twice for one side', async () => {
     await freshStepUp();
     // people without spec.sign cannot sign
-    for (const c of [up, af, av, intake, chaves, kf]) expect((await c.call('POST', `/api/specs/${v1}/sign`, {})).status).toBe(403);
+    for (const c of [up, af, av]) expect((await c.call('POST', `/api/specs/${v1}/sign`, {})).status).toBe(403);
     // not the version that was shown
-    const wrong = await kq.call('POST', `/api/console/specs/${v1}/sign`, { contentHash: '0'.repeat(64) });
+    const wrong = await klAdmin.call('POST', `/api/console/specs/${v1}/sign`, { contentHash: '0'.repeat(64) });
     expect(wrong.status).toBe(409);
     expect(wrong.json.code).toBe('hash_mismatch');
     // step up is needed
-    await expireStepUp('quality@kline.demo');
-    const noStep = await kq.call('POST', `/api/console/specs/${v1}/sign`, {});
+    await expireStepUp('admin@kline.demo');
+    const noStep = await klAdmin.call('POST', `/api/console/specs/${v1}/sign`, {});
     expect(noStep.json.code).toBe('step_up_required');
     await freshStepUp();
 
-    const seen = await kq.call('GET', `/api/console/specs/${v1}`);
-    const first = await kq.call('POST', `/api/console/specs/${v1}/sign`, { contentHash: seen.json.spec.contentHash });
+    const seen = await klAdmin.call('GET', `/api/console/specs/${v1}`);
+    const first = await klAdmin.call('POST', `/api/console/specs/${v1}/sign`, { contentHash: seen.json.spec.contentHash });
     expect(first.status, JSON.stringify(first.json)).toBe(200);
     expect(first.json.spec.status).toBe('proposed');
-    expect(first.json.spec.klineSignature).toMatchObject({ name: 'Quentin Quality' });
+    expect(first.json.spec.klineSignature).toMatchObject({ name: 'Katrin Admin' });
     expect(first.json.spec.partnerSignature).toBeNull();
     // the same person, and a colleague on the same side, cannot sign again
-    expect((await kq.call('POST', `/api/specs/${v1}/sign`, {})).json.code).toBe('already_signed');
-    expect((await kq2.call('POST', `/api/specs/${v1}/sign`, {})).json.code).toBe('already_signed');
+    expect((await klAdmin.call('POST', `/api/specs/${v1}/sign`, {})).json.code).toBe('already_signed');
+    expect((await kl2.call('POST', `/api/specs/${v1}/sign`, {})).json.code).toBe('already_signed');
 
     const second = await aq.call('POST', `/api/specs/${v1}/sign`, {});
     expect(second.status, JSON.stringify(second.json)).toBe(200);
-    expect(second.json.spec).toMatchObject({ status: 'active', partnerSignature: { name: 'Quinn Quality' }, klineSignature: { name: 'Quentin Quality' } });
+    expect(second.json.spec).toMatchObject({ status: 'active', partnerSignature: { name: 'Quinn Quality' }, klineSignature: { name: 'Katrin Admin' } });
     expect(second.json.spec.activatedAt).toBeTruthy();
     expect((await aq2.call('POST', `/api/specs/${v1}/sign`, {})).status).toBe(409); // no longer proposed
 
@@ -300,28 +292,25 @@ describe('production specification', () => {
   });
 
   it('lets K Line propose a change for a partner; the partner rejects it with a note', async () => {
-    // a K Line user without any spec right cannot draft
-    expect((await kf.call('POST', '/api/console/specs', { orgId: acmeId })).status).toBe(403);
-    expect((await intake.call('POST', '/api/console/specs', { orgId: acmeId })).status).toBe(403);
-    expect((await kq.call('POST', '/api/console/specs', {})).json.code).toBe('org_required');
-    expect((await kq.call('POST', '/api/console/specs', { orgId: klineId })).status).toBe(404); // not a partner
+    expect((await klAdmin.call('POST', '/api/console/specs', {})).json.code).toBe('org_required');
+    expect((await klAdmin.call('POST', '/api/console/specs', { orgId: klineId })).status).toBe(404); // not a partner
     expect((await aq.call('POST', '/api/console/specs', { orgId: acmeId })).status).toBe(403); // console is for K Line
 
-    const c = await kq.call('POST', '/api/console/specs', { orgId: acmeId, changeNote: 'Shorter wear time' });
+    const c = await klAdmin.call('POST', '/api/console/specs', { orgId: acmeId, changeNote: 'Shorter wear time' });
     expect(c.status, JSON.stringify(c.json)).toBe(201);
     v2 = c.json.spec.id;
     expect(c.json.spec).toMatchObject({ version: 2, status: 'draft', createdSide: 'kline', orgId: acmeId });
-    const content = await specContent(kq, v2);
+    const content = await specContent(klAdmin, v2);
     expect(content.marking.clauses.some((x) => x.id === 'MK-3')).toBe(true); // copied from the active version
     content.bag.wearDays = 10;
-    expect((await kq.call('PUT', `/api/console/specs/${v2}`, { content })).status).toBe(200);
+    expect((await klAdmin.call('PUT', `/api/console/specs/${v2}`, { content })).status).toBe(200);
     // the partner cannot see the draft
     expect((await aq.call('GET', `/api/specs/${v2}`)).status).toBe(404);
 
-    await expireStepUp('quality@kline.demo');
-    expect((await kq.call('POST', `/api/console/specs/${v2}/propose`, {})).json.code).toBe('step_up_required');
+    await expireStepUp('admin@kline.demo');
+    expect((await klAdmin.call('POST', `/api/console/specs/${v2}/propose`, {})).json.code).toBe('step_up_required');
     await freshStepUp();
-    const p = await kq.call('POST', `/api/console/specs/${v2}/propose`, {});
+    const p = await klAdmin.call('POST', `/api/console/specs/${v2}/propose`, {});
     expect(p.status, JSON.stringify(p.json)).toBe(200);
     expect(p.json.spec.status).toBe('proposed');
     expect((await aq.call('GET', `/api/specs/${v2}`)).status).toBe(200);
@@ -342,25 +331,25 @@ describe('production specification', () => {
     expect((await aq.call('GET', '/api/specs/active')).json.spec.id).toBe(v1);
     // rejected versions cannot be signed by K Line either
     await freshStepUp();
-    expect((await kq.call('POST', `/api/console/specs/${v2}/sign`, {})).status).toBe(409);
+    expect((await klAdmin.call('POST', `/api/console/specs/${v2}/sign`, {})).status).toBe(409);
   });
 
   it('supersedes the previous version and keeps only one active, whichever side signs first', async () => {
-    const c = await kq.call('POST', '/api/console/specs', { orgId: acmeId, baseSpecId: v1, changeNote: 'Clearer bags' });
+    const c = await klAdmin.call('POST', '/api/console/specs', { orgId: acmeId, baseSpecId: v1, changeNote: 'Clearer bags' });
     v3 = c.json.spec.id;
     expect(c.json.spec.version).toBe(3);
-    const content = await specContent(kq, v3);
+    const content = await specContent(klAdmin, v3);
     content.bag.wearDays = 21;
     content.bag.lines = ['{ref}', 'Custom {aligner}'];
     content.finish.clauses[0]!.text = 'All edges are smooth, polished and free of burrs.';
-    expect((await kq.call('PUT', `/api/console/specs/${v3}`, { content })).status).toBe(200);
+    expect((await klAdmin.call('PUT', `/api/console/specs/${v3}`, { content })).status).toBe(200);
     await freshStepUp();
-    expect((await kq.call('POST', `/api/console/specs/${v3}/propose`, {})).status).toBe(200);
+    expect((await klAdmin.call('POST', `/api/console/specs/${v3}/propose`, {})).status).toBe(200);
 
     const first = await aq.call('POST', `/api/specs/${v3}/sign`, {});
     expect(first.json.spec.status).toBe('proposed');
     expect(first.json.spec.partnerSignature).toBeTruthy();
-    const second = await kq2.call('POST', `/api/console/specs/${v3}/sign`, {});
+    const second = await kl2.call('POST', `/api/console/specs/${v3}/sign`, {});
     expect(second.status, JSON.stringify(second.json)).toBe(200);
     expect(second.json.spec.status).toBe('active');
     const rows = await q(`SELECT id, status FROM specs WHERE org_id = $1 ORDER BY version`, [acmeId]);
@@ -408,7 +397,7 @@ describe('production specification', () => {
     expect(d.json.changeCount).toBe(2);
     expect((await aq.call('GET', `/api/specs/${v3}/diff/${v3}`)).json.changeCount).toBe(0);
     expect((await contoso.call('GET', `/api/specs/${v3}/diff/${v1}`)).status).toBe(404);
-    expect((await kq.call('GET', `/api/console/specs/${v3}/diff/${v1}`)).status).toBe(200);
+    expect((await klAdmin.call('GET', `/api/console/specs/${v3}/diff/${v1}`)).status).toBe(200);
     expect((await aq.call('GET', `/api/console/specs/${v3}/diff/${v1}`)).status).toBe(403);
   });
 
@@ -423,7 +412,7 @@ describe('production specification', () => {
     expect((await klAdmin.call('GET', `/api/console/specs?orgId=${acmeId}`)).json.items.map((s: any) => s.version)).toEqual([3, 2, 1]);
     await freshStepUp();
     expect((await aq.call('POST', `/api/specs/${v4}/propose`, {})).status).toBe(200);
-    expect((await kq.call('POST', `/api/console/specs/${v4}/sign`, {})).json.spec.status).toBe('proposed');
+    expect((await klAdmin.call('POST', `/api/console/specs/${v4}/sign`, {})).json.spec.status).toBe('proposed');
     const done = await aq2.call('POST', `/api/specs/${v4}/sign`, {});
     expect(done.json.spec.status).toBe('active');
     expect((await q(`SELECT count(*)::int AS n FROM specs WHERE org_id = $1 AND status = 'active'`, [acmeId]))[0].n).toBe(1);
@@ -431,12 +420,12 @@ describe('production specification', () => {
     // deleting: only drafts of your own side
     const d = await aq.call('POST', '/api/specs', {});
     expect(d.status).toBe(201);
-    expect((await kq.call('DELETE', `/api/console/specs/${d.json.spec.id}`)).status).toBe(404);
+    expect((await klAdmin.call('DELETE', `/api/console/specs/${d.json.spec.id}`)).status).toBe(404);
     expect((await aq.call('DELETE', `/api/specs/${d.json.spec.id}`)).json).toEqual({ ok: true });
   });
 
   it('summarises every partner for K Line and records the workflow in the partner audit log', async () => {
-    const s = await kq.call('GET', '/api/console/specs/partners');
+    const s = await klAdmin.call('GET', '/api/console/specs/partners');
     expect(s.status).toBe(200);
     const acme = s.json.items.find((x: any) => x.orgId === acmeId);
     expect(acme).toMatchObject({ name: 'Acme Aligners', activeVersion: 4, proposed: null });
@@ -484,7 +473,7 @@ describe('quality claims', () => {
     // permissions
     expect((await up.call('POST', '/api/claims', base)).status).toBe(403); // uploader has claim.read only
     expect((await av.call('POST', '/api/claims', base)).status).toBe(403);
-    expect((await kq.call('POST', '/api/claims', base)).status).toBe(403); // K Line staff do not raise claims
+    expect((await klAdmin.call('POST', '/api/claims', base)).status).toBe(403); // K Line staff do not raise claims
     expect((await contoso.call('POST', '/api/claims', base)).status).toBe(404); // not their case
     expect((await withKey(['cases:write', 'cases:read'], 'POST', '/api/claims', base)).status).toBe(403);
     expect((await q(`SELECT count(*)::int AS n FROM claims`))[0].n).toBe(0);
@@ -556,7 +545,7 @@ describe('quality claims', () => {
     expect(bad.status).toBe(415);
     // who may upload
     expect((await up.call('POST', '/api/uploads', { purpose: 'claim', claimId, name: 'a.png', size: 10 })).status).toBe(403);
-    expect((await kq.call('POST', '/api/uploads', { purpose: 'claim', claimId, name: 'a.png', size: 10 })).status).toBe(403);
+    expect((await klAdmin.call('POST', '/api/uploads', { purpose: 'claim', claimId, name: 'a.png', size: 10 })).status).toBe(403);
     expect((await withKey(['cases:write', 'cases:read'], 'POST', '/api/uploads', { purpose: 'claim', claimId, name: 'a.png', size: 10 })).status).toBe(403);
     expect((await contoso.call('POST', '/api/uploads', { purpose: 'claim', claimId, name: 'a.png', size: 10 })).status).toBe(404);
     expect((await aq.call('POST', '/api/uploads', { purpose: 'claim', name: 'a.png', size: 10 })).status).toBe(400);
@@ -591,10 +580,10 @@ describe('quality claims', () => {
     expect((await contoso.call('GET', `/api/files/${evidenceId}/download`)).status).toBe(404);
     expect((await contoso.call('GET', `/api/console/claims/${claimId}`)).status).toBe(403);
     // K Line: console detail is audited to the partner, downloads too
-    const kd = await kq.call('GET', `/api/console/claims/${claimId}`);
+    const kd = await klAdmin.call('GET', `/api/console/claims/${claimId}`);
     expect(kd.status).toBe(200);
-    await kq.call('GET', `/api/console/claims/${claimId}`); // a second view within ten minutes adds nothing
-    const dl = await kq.call('GET', `/api/files/${evidenceId}/download`);
+    await klAdmin.call('GET', `/api/console/claims/${claimId}`); // a second view within ten minutes adds nothing
+    const dl = await klAdmin.call('GET', `/api/files/${evidenceId}/download`);
     expect(dl.status).toBe(200);
     expect(dl.res.rawPayload.equals(PNG_BYTES)).toBe(true);
     const own = await aq.call('GET', `/api/files/${evidenceId}/download`);
@@ -607,9 +596,9 @@ describe('quality claims', () => {
     expect(downloads).toHaveLength(2);
     expect(downloads.every((e: any) => e.details.claimId === claimId)).toBe(true);
     // the case's own detail also lists the claim for the partner; K Line lists
-    const l = await kq.call('GET', '/api/console/claims?status=open');
+    const l = await klAdmin.call('GET', '/api/console/claims?status=open');
     expect(l.json.items.map((c: any) => c.id)).toContain(claimId);
-    expect((await kq.call('GET', `/api/console/claims?orgId=${contosoId}`)).json.total).toBe(0);
+    expect((await klAdmin.call('GET', `/api/console/claims?orgId=${contosoId}`)).json.total).toBe(0);
     expect((await aq.call('GET', '/api/console/claims')).status).toBe(403);
     expect((await aq.call('GET', `/api/claims?caseId=${k.id}`)).json.total).toBe(1);
     expect((await aq.call('GET', '/api/claims?status=closed')).json.total).toBe(0);
@@ -632,15 +621,14 @@ describe('quality claims', () => {
     // only K Line changes the status
     expect((await aq.call('POST', `/api/claims/${claimId}/status`, { status: 'in_review' })).status).toBe(403);
     expect((await admin.call('POST', `/api/claims/${claimId}/status`, { status: 'in_review' })).status).toBe(403);
-    expect((await intake.call('POST', `/api/claims/${claimId}/status`, { status: 'in_review' })).status).toBe(403);
-    expect((await kq.call('POST', `/api/claims/${claimId}/status`, { status: 'accepted' })).status).toBe(400);
-    const review = await kq.call('POST', `/api/claims/${claimId}/status`, { status: 'in_review' });
+    expect((await klAdmin.call('POST', `/api/claims/${claimId}/status`, { status: 'accepted' })).status).toBe(400);
+    const review = await klAdmin.call('POST', `/api/claims/${claimId}/status`, { status: 'in_review' });
     expect(review.status, JSON.stringify(review.json)).toBe(200);
     expect(review.json.claim.status).toBe('in_review');
-    expect((await kq.call('POST', `/api/claims/${claimId}/status`, { status: 'in_review' })).json.code).toBe('status_unchanged');
-    const wait = await kq.call('POST', `/api/claims/${claimId}/status`, { status: 'awaiting_partner' });
+    expect((await klAdmin.call('POST', `/api/claims/${claimId}/status`, { status: 'in_review' })).json.code).toBe('status_unchanged');
+    const wait = await klAdmin.call('POST', `/api/claims/${claimId}/status`, { status: 'awaiting_partner' });
     expect(wait.json.claim.status).toBe('awaiting_partner');
-    const km = await kq.call('POST', `/api/claims/${claimId}/messages`, { body: 'Please send a photo of the packaging too.' });
+    const km = await klAdmin.call('POST', `/api/claims/${claimId}/messages`, { body: 'Please send a photo of the packaging too.' });
     expect(km.status).toBe(201);
     expect(km.json.message.side).toBe('kline');
     expect(km.json.status).toBe('awaiting_partner'); // a K Line message does not change the status
@@ -651,8 +639,8 @@ describe('quality claims', () => {
     const d = await aq.call('GET', `/api/claims/${claimId}`);
     const bodies = d.json.messages.map((m: any) => [m.side, m.authorName]);
     expect(bodies).toContainEqual(['kline', 'K Line']); // partners do not see who at K Line wrote
-    const kd = await kq.call('GET', `/api/console/claims/${claimId}`);
-    expect(kd.json.messages.find((m: any) => m.side === 'kline').authorName).toBe('Quentin Quality');
+    const kd = await klAdmin.call('GET', `/api/console/claims/${claimId}`);
+    expect(kd.json.messages.find((m: any) => m.side === 'kline').authorName).toBe('Katrin Admin');
     // each side is told about the other side's messages, by claim number only
     const toPartner = await q(`SELECT title, body FROM notifications WHERE org_id = $1 AND kind IN ('claim_status', 'claim_message')`, [acmeId]);
     expect(toPartner.length).toBeGreaterThanOrEqual(3);
@@ -664,18 +652,18 @@ describe('quality claims', () => {
   });
 
   it('needs the right rights and a resolution or a note to decide', async () => {
-    for (const c of [aq, admin, up, intake, chaves, kf]) expect((await c.call('POST', `/api/claims/${claimId}/decision`, { decision: 'rejected', note: 'No.' })).status).toBe(403);
-    expect((await kq.call('POST', `/api/claims/${claimId}/decision`, { decision: 'accepted' })).json.code).toBe('resolution_required');
-    expect((await kq.call('POST', `/api/claims/${claimId}/decision`, { decision: 'accepted', resolution: 'bogus' })).status).toBe(400);
-    expect((await kq.call('POST', `/api/claims/${claimId}/decision`, { decision: 'rejected' })).json.code).toBe('note_required');
-    expect((await kq.call('POST', `/api/claims/${claimId}/decision`, { decision: 'rejected', note: 'x' })).json.code).toBe('note_required');
-    expect((await kq.call('POST', `/api/claims/${claimId}/close`, {})).json.code).toBe('claim_not_decided');
+    for (const c of [aq, admin, up]) expect((await c.call('POST', `/api/claims/${claimId}/decision`, { decision: 'rejected', note: 'No.' })).status).toBe(403);
+    expect((await klAdmin.call('POST', `/api/claims/${claimId}/decision`, { decision: 'accepted' })).json.code).toBe('resolution_required');
+    expect((await klAdmin.call('POST', `/api/claims/${claimId}/decision`, { decision: 'accepted', resolution: 'bogus' })).status).toBe(400);
+    expect((await klAdmin.call('POST', `/api/claims/${claimId}/decision`, { decision: 'rejected' })).json.code).toBe('note_required');
+    expect((await klAdmin.call('POST', `/api/claims/${claimId}/decision`, { decision: 'rejected', note: 'x' })).json.code).toBe('note_required');
+    expect((await klAdmin.call('POST', `/api/claims/${claimId}/close`, {})).json.code).toBe('claim_not_decided');
     expect((await aq.call('POST', `/api/claims/${claimId}/close`, {})).status).toBe(403);
   });
 
   it('accepts a remake by creating a rush rework case that reuses the parent files and reaches the factory', async () => {
     const before = (await q(`SELECT count(*)::int AS n FROM files`))[0].n;
-    const r = await kq.call('POST', `/api/claims/${claimId}/decision`, {
+    const r = await klAdmin.call('POST', `/api/claims/${claimId}/decision`, {
       decision: 'accepted', resolution: 'remake', rootCause: 'Trim tool worn.', correctiveAction: 'Tool replaced.', note: 'We will remake both aligners.',
     });
     expect(r.status, JSON.stringify(r.json)).toBe(200);
@@ -717,7 +705,7 @@ describe('quality claims', () => {
     const dl = await up.call('GET', `/api/files/${u2.id}/download`);
     expect(dl.status).toBe(200);
     expect(sha(dl.res.rawPayload)).toBe(sha(k.data.u2));
-    expect((await kq.call('GET', `/api/files/${u2.id}/download`)).res.rawPayload.equals(k.data.u2)).toBe(true);
+    expect((await klAdmin.call('GET', `/api/files/${u2.id}/download`)).res.rawPayload.equals(k.data.u2)).toBe(true);
     const pkg = await up.call('GET', `/api/cases/${reworkId}/package.zip`);
     expect(pkg.status).toBe(200);
     expect(pkg.res.rawPayload.length).toBeGreaterThan(1000);
@@ -744,24 +732,24 @@ describe('quality claims', () => {
     expect(f.status).toBe(200);
     expect(sha(f.res.rawPayload)).toBe(sha(k.data.u2));
     // K Line intake sees it on the ready tab, rush first
-    const tab = await intake.call('GET', '/api/intake?tab=ready');
+    const tab = await klAdmin.call('GET', '/api/intake?tab=ready');
     expect(tab.json.items[0]).toMatchObject({ id: reworkId, priority: 'rush', kind: 'rework' });
     expect(hooks.some((h) => h.kind === 'case' && h.id === reworkId && h.event === 'case.ready')).toBe(true);
     // a decision cannot be taken twice
-    expect((await kq.call('POST', `/api/claims/${claimId}/decision`, { decision: 'rejected', note: 'Changed my mind' })).json.code).toBe('claim_decided');
-    expect((await kq.call('POST', `/api/claims/${claimId}/status`, { status: 'in_review' })).json.code).toBe('claim_decided');
+    expect((await klAdmin.call('POST', `/api/claims/${claimId}/decision`, { decision: 'rejected', note: 'Changed my mind' })).json.code).toBe('claim_decided');
+    expect((await klAdmin.call('POST', `/api/claims/${claimId}/status`, { status: 'in_review' })).json.code).toBe('claim_decided');
     const dec = await q(`SELECT title FROM notifications WHERE org_id = $1 AND kind = 'claim_decision'`, [acmeId]);
     expect(dec.map((n) => n.title)).toEqual(['Quality claim accepted']);
   });
 
   it('closes a claim and then refuses further changes', async () => {
-    const r = await kq.call('POST', `/api/claims/${claimId}/close`, {});
+    const r = await klAdmin.call('POST', `/api/claims/${claimId}/close`, {});
     expect(r.status, JSON.stringify(r.json)).toBe(200);
     expect(r.json.claim.status).toBe('closed');
     expect(r.json.claim.closedAt).toBeTruthy();
-    expect((await kq.call('POST', `/api/claims/${claimId}/close`, {})).json.code).toBe('claim_closed');
+    expect((await klAdmin.call('POST', `/api/claims/${claimId}/close`, {})).json.code).toBe('claim_closed');
     expect((await aq.call('POST', `/api/claims/${claimId}/messages`, { body: 'One more thing' })).json.code).toBe('claim_closed');
-    expect((await kq.call('POST', `/api/claims/${claimId}/messages`, { body: 'Closed' })).json.code).toBe('claim_closed');
+    expect((await klAdmin.call('POST', `/api/claims/${claimId}/messages`, { body: 'Closed' })).json.code).toBe('claim_closed');
     const late = await aq.call('POST', '/api/uploads', { purpose: 'claim', claimId, name: 'late.png', size: 10 });
     expect(late.status).toBe(409);
     expect(late.json.code).toBe('claim_not_open');
@@ -775,69 +763,50 @@ describe('quality claims', () => {
     await q(`UPDATE organizations SET settings = settings || '{"manual_review": true}'::jsonb WHERE id = $1`, [acmeId]);
     const c = await aq.call('POST', '/api/claims', { caseId: k.id, summary: 'Debris again', items: [{ arch: 'upper', step: 1, defectCode: 'DEBRIS' }] });
     expect(c.status, JSON.stringify(c.json)).toBe(201);
-    const d = await kq.call('POST', `/api/claims/${c.json.claim.id}/decision`, { decision: 'accepted', resolution: 'remake' });
+    const d = await klAdmin.call('POST', `/api/claims/${c.json.claim.id}/decision`, { decision: 'accepted', resolution: 'remake' });
     expect(d.status, JSON.stringify(d.json)).toBe(200);
-    const child = (await kq.call('GET', `/api/console/cases/${d.json.claim.reworkCaseId}`)).json;
+    const child = (await klAdmin.call('GET', `/api/console/cases/${d.json.claim.reworkCaseId}`)).json;
     expect(child.case).toMatchObject({ status: 'submitted', priority: 'rush', kind: 'rework', siteCode: null });
-    const tab = await intake.call('GET', '/api/intake?tab=review');
+    const tab = await klAdmin.call('GET', '/api/intake?tab=review');
     expect(tab.json.items.map((x: any) => x.id)).toContain(d.json.claim.reworkCaseId);
     await runDueJobs();
     const notes = await q(`SELECT title, body FROM notifications WHERE org_id = $1 AND kind = 'case_submitted'`, [klineId]);
     expect(notes.some((n) => n.body === `Case ${child.case.ref}`)).toBe(true);
     // not in the factory feed until routed
     expect((await svc('GET', '/api/mes/v1/intake')).json.cases.map((x: any) => x.ref)).not.toContain(child.case.ref);
-    const routed = await intake.call('POST', `/api/cases/${d.json.claim.reworkCaseId}/route`, { siteCode: 'PT-CHV' });
+    const routed = await klAdmin.call('POST', `/api/cases/${d.json.claim.reworkCaseId}/route`, { siteCode: 'PT-CHV' });
     expect(routed.status, JSON.stringify(routed.json)).toBe(200);
     expect((await svc('GET', '/api/mes/v1/intake')).json.cases.map((x: any) => x.ref)).toContain(child.case.ref);
     await q(`UPDATE organizations SET settings = settings || '{"manual_review": false}'::jsonb WHERE id = $1`, [acmeId]);
-    await kq.call('POST', `/api/claims/${c.json.claim.id}/close`, {});
+    await klAdmin.call('POST', `/api/claims/${c.json.claim.id}/close`, {});
   });
 
   it('rejects with a reason the partner can read and resolves a credit without a new case', async () => {
     const a = await aq.call('POST', '/api/claims', { caseId: k.id, summary: 'Cloudy film', items: [{ arch: 'lower', step: 1, defectCode: 'TRANSPARENCY' }] });
-    const rejected = await kq.call('POST', `/api/claims/${a.json.claim.id}/decision`, { decision: 'rejected', note: 'The film was within tolerance.' });
+    const rejected = await klAdmin.call('POST', `/api/claims/${a.json.claim.id}/decision`, { decision: 'rejected', note: 'The film was within tolerance.' });
     expect(rejected.status, JSON.stringify(rejected.json)).toBe(200);
     expect(rejected.json.claim).toMatchObject({ status: 'rejected', resolution: null, reworkCaseId: null, decisionNote: 'The film was within tolerance.' });
     const seen = await aq.call('GET', `/api/claims/${a.json.claim.id}`);
     expect(seen.json.messages.map((m: any) => m.body)).toEqual(['Claim opened.', 'Claim rejected.', 'The film was within tolerance.']);
-    expect((await kq.call('POST', `/api/claims/${a.json.claim.id}/close`, {})).status).toBe(200);
+    expect((await klAdmin.call('POST', `/api/claims/${a.json.claim.id}/close`, {})).status).toBe(200);
 
     const b = await aq.call('POST', '/api/claims', { caseId: k.id, summary: 'Late delivery damage', items: [{ arch: 'upper', step: 1, defectCode: 'PACKAGING' }] });
     const before = (await q(`SELECT count(*)::int AS n FROM cases`))[0].n;
-    const credit = await kq.call('POST', `/api/claims/${b.json.claim.id}/decision`, { decision: 'accepted', resolution: 'credit' });
+    const credit = await klAdmin.call('POST', `/api/claims/${b.json.claim.id}/decision`, { decision: 'accepted', resolution: 'credit' });
     expect(credit.json.claim).toMatchObject({ status: 'accepted', resolution: 'credit', reworkCaseId: null });
     expect((await q(`SELECT count(*)::int AS n FROM cases`))[0].n).toBe(before);
     expect(credit.json.messages.map((m: any) => m.body)).toContain('Claim accepted. Resolution: credit.');
-    expect((await kq.call('POST', `/api/claims/${b.json.claim.id}/close`, {})).status).toBe(200);
+    expect((await klAdmin.call('POST', `/api/claims/${b.json.claim.id}/close`, {})).status).toBe(200);
   });
 
   it('counts open claims on the console overview', async () => {
     const before = (await klAdmin.call('GET', '/api/console/overview')).json.openClaims;
     const c = await aq.call('POST', '/api/claims', { caseId: k.id, summary: 'Open one', items: [{ arch: 'upper', step: 1, defectCode: 'OTHER' }] });
     expect((await klAdmin.call('GET', '/api/console/overview')).json.openClaims).toBe(before + 1);
-    await kq.call('POST', `/api/claims/${c.json.claim.id}/status`, { status: 'awaiting_partner' });
+    await klAdmin.call('POST', `/api/claims/${c.json.claim.id}/status`, { status: 'awaiting_partner' });
     expect((await klAdmin.call('GET', '/api/console/overview')).json.openClaims).toBe(before + 1);
-    await kq.call('POST', `/api/claims/${c.json.claim.id}/decision`, { decision: 'rejected', note: 'Not a defect.' });
+    await klAdmin.call('POST', `/api/claims/${c.json.claim.id}/decision`, { decision: 'rejected', note: 'Not a defect.' });
     expect((await klAdmin.call('GET', '/api/console/overview')).json.openClaims).toBe(before);
-  });
-
-  it('applies the production site scope to claims', async () => {
-    // chaves works at PT-CHV; a claim on a case at another site is invisible to that person
-    const other = await newCase(up);
-    await q(`UPDATE cases SET status = 'shipped', site_id = (SELECT id FROM sites WHERE code = 'EG-CFZ'), submitted_at = now() WHERE id = $1`, [other.id]);
-    await q(`INSERT INTO files (org_id, purpose, case_id, kind, arch, step, state, size) VALUES ($1, 'case', $2, 'stl', 'upper', 1, 'ready', 10)`, [acmeId, other.id]);
-    const c = await aq.call('POST', '/api/claims', { caseId: other.id, summary: 'Elsewhere', items: [{ arch: 'upper', step: 1, defectCode: 'OTHER' }] });
-    expect(c.status, JSON.stringify(c.json)).toBe(201);
-    expect((await chaves.call('GET', `/api/console/claims/${c.json.claim.id}`)).status).toBe(404);
-    expect((await chaves.call('GET', '/api/console/claims')).json.items.map((x: any) => x.id)).not.toContain(c.json.claim.id);
-    expect((await klAdmin.call('GET', `/api/console/claims/${c.json.claim.id}`)).status).toBe(200);
-    // the overview counts only the claims of the person's sites
-    const own = await chaves.call('GET', '/api/console/overview');
-    const all = await klAdmin.call('GET', '/api/console/overview');
-    expect(own.status).toBe(200);
-    expect(all.json.openClaims - own.json.openClaims).toBeGreaterThanOrEqual(1);
-    await q(`DELETE FROM claims WHERE id = $1`, [c.json.claim.id]);
-    await q(`DELETE FROM cases WHERE id = $1`, [other.id]);
   });
 
   it('remakes a direct manufacturing case as a standard rework case for the factory', async () => {
@@ -846,11 +815,11 @@ describe('quality claims', () => {
     await q(`UPDATE cases SET manufacturing_mode = 'direct', patient_first_enc = 'x', patient_last_enc = 'y' WHERE id = $1`, [d.id]);
     const c = await aq.call('POST', '/api/claims', { caseId: d.id, summary: 'Direct case problem', items: [{ arch: 'lower', step: 1, defectCode: 'TRIM_LINE' }] });
     expect(c.status, JSON.stringify(c.json)).toBe(201);
-    const r = await kq.call('POST', `/api/claims/${c.json.claim.id}/decision`, { decision: 'accepted', resolution: 'remake' });
+    const r = await klAdmin.call('POST', `/api/claims/${c.json.claim.id}/decision`, { decision: 'accepted', resolution: 'remake' });
     expect(r.status, JSON.stringify(r.json)).toBe(200);
     const child = (await up.call('GET', `/api/cases/${r.json.claim.reworkCaseId}`)).json.case;
     expect(child).toMatchObject({ kind: 'rework', manufacturingMode: 'standard', status: 'ready', parentRef: d.ref });
-    await kq.call('POST', `/api/claims/${c.json.claim.id}/close`, {});
+    await klAdmin.call('POST', `/api/claims/${c.json.claim.id}/close`, {});
     await q(`UPDATE cases SET manufacturing_mode = 'standard', patient_first_enc = NULL, patient_last_enc = NULL WHERE id = $1`, [d.id]);
   });
 
@@ -882,7 +851,7 @@ describe('replacement orders', () => {
     expect((await up.call('POST', `/api/cases/${k.id}/replacement`, { items: [{ arch: 'sideways', step: 1 }] })).status).toBe(400);
     expect((await contoso.call('POST', `/api/cases/${k.id}/replacement`, { items: [{ arch: 'upper', step: 1 }] })).status).toBe(404);
     expect((await av.call('POST', `/api/cases/${k.id}/replacement`, { items: [{ arch: 'upper', step: 1 }] })).status).toBe(403);
-    expect((await kq.call('POST', `/api/cases/${k.id}/replacement`, { items: [{ arch: 'upper', step: 1 }] })).status).toBe(403);
+    expect((await klAdmin.call('POST', `/api/cases/${k.id}/replacement`, { items: [{ arch: 'upper', step: 1 }] })).status).toBe(403);
 
     const r = await up.call('POST', `/api/cases/${k.id}/replacement`, { items: [{ arch: 'upper', step: 1 }, { arch: 'upper', step: 1 }, { arch: 'lower', step: 1 }], reason: 'Lost by the patient' });
     expect(r.status, JSON.stringify(r.json)).toBe(201);
@@ -963,10 +932,10 @@ describe('partner supplied materials', () => {
     // visibility
     expect((await af.call('GET', '/api/materials')).json.items).toHaveLength(3);
     expect((await contoso.call('GET', '/api/materials')).json.items).toEqual([]);
-    const all = await kf.call('GET', '/api/console/materials');
+    const all = await klAdmin.call('GET', '/api/console/materials');
     expect(all.json.items.map((x: any) => x.sku).sort()).toEqual(['BAG-1', 'BOX-1', 'ELA-1']);
     expect(all.json.items[0].orgName).toBe('Acme Aligners');
-    expect((await kf.call('GET', `/api/console/materials?orgId=${contosoId}`)).json.items).toEqual([]);
+    expect((await klAdmin.call('GET', `/api/console/materials?orgId=${contosoId}`)).json.items).toEqual([]);
     expect((await af.call('GET', '/api/console/materials')).status).toBe(403);
     expect((await withKey(['materials:read'], 'GET', '/api/materials')).status).toBe(200);
     expect((await withKey(['cases:read'], 'GET', '/api/materials')).status).toBe(403);
@@ -1011,11 +980,11 @@ describe('partner supplied materials', () => {
     expect((await up.call('POST', '/api/uploads', { purpose: 'shipment', shipmentId: s1, name: 'clip.mp4', size: 10 })).status).toBe(415);
     expect((await up.call('POST', '/api/uploads', { purpose: 'shipment', shipmentId: s1, name: 'big.pdf', size: 25 * 1024 * 1024 + 1 })).status).toBe(413);
     expect((await aq.call('POST', '/api/uploads', { purpose: 'shipment', shipmentId: s1, name: 'a.pdf', size: 10 })).status).toBe(403);
-    expect((await kq.call('POST', '/api/uploads', { purpose: 'shipment', shipmentId: s1, name: 'a.pdf', size: 10 })).status).toBe(403);
+    expect((await klAdmin.call('POST', '/api/uploads', { purpose: 'shipment', shipmentId: s1, name: 'a.pdf', size: 10 })).status).toBe(403);
     expect((await contoso.call('POST', '/api/uploads', { purpose: 'shipment', shipmentId: s1, name: 'a.pdf', size: 10 })).status).toBe(404);
-    const d = await chaves.call('GET', `/api/console/material-shipments/${s1}`);
+    const d = await klAdmin.call('GET', `/api/console/material-shipments/${s1}`);
     expect(d.json.documents.map((f: any) => f.name).sort()).toEqual(['delivery note.pdf', 'photo.png']);
-    const dl = await chaves.call('GET', `/api/files/${doc.fileId}/download`);
+    const dl = await klAdmin.call('GET', `/api/files/${doc.fileId}/download`);
     expect(dl.status).toBe(200);
     expect(dl.res.rawPayload.subarray(0, 4).toString()).toBe('%PDF');
     const log = await admin.call('GET', '/api/audit?action=file.download');
@@ -1041,23 +1010,18 @@ describe('partner supplied materials', () => {
     expect(await stockOf(af, bag, 'PT-CHV')).toMatchObject({ inTransit: 50 });
   });
 
-  it('receives at the site with a discrepancy, scoped to the production site', async () => {
-    expect((await intake.call('POST', `/api/console/material-shipments/${s1}/receive`, { lines: [{ lineId: ZERO, receivedQuantity: 1 }] })).status).toBe(403);
+  it('receives at the site with a discrepancy', async () => {
     expect((await up.call('POST', `/api/console/material-shipments/${s1}/receive`, { lines: [{ lineId: ZERO, receivedQuantity: 1 }] })).status).toBe(403);
-    expect((await chaves.call('GET', `/api/console/material-shipments?status=in_transit`)).json.items.map((s: any) => s.id)).toEqual([s1]);
     expect((await klAdmin.call('GET', `/api/console/material-shipments?status=in_transit`)).json.total).toBe(2);
     expect((await klAdmin.call('GET', `/api/console/material-shipments?siteCode=EG-CFZ`)).json.items.map((s: any) => s.id)).toEqual([s2]);
-    // Chaves cannot touch a shipment for another site
     const other = await klAdmin.call('GET', `/api/console/material-shipments/${s2}`);
-    expect((await chaves.call('GET', `/api/console/material-shipments/${s2}`)).status).toBe(404);
-    expect((await chaves.call('POST', `/api/console/material-shipments/${s2}/receive`, { lines: other.json.shipment.lines.map((l: any) => ({ lineId: l.id, receivedQuantity: l.quantity })) })).status).toBe(404);
 
-    const detail = (await chaves.call('GET', `/api/console/material-shipments/${s1}`)).json.shipment;
+    const detail = (await klAdmin.call('GET', `/api/console/material-shipments/${s1}`)).json.shipment;
     const byName = (n: string) => detail.lines.find((l: any) => l.sku === n);
     // every line must be answered
-    expect((await chaves.call('POST', `/api/console/material-shipments/${s1}/receive`, { lines: [{ lineId: byName('BOX-1').id, receivedQuantity: 20 }] })).json.code).toBe('lines_mismatch');
-    expect((await chaves.call('POST', `/api/console/material-shipments/${s1}/receive`, { lines: [{ lineId: byName('BOX-1').id, receivedQuantity: -1 }, { lineId: byName('BAG-1').id, receivedQuantity: 1 }, { lineId: byName('ELA-1').id, receivedQuantity: 1 }] })).status).toBe(400);
-    const r = await chaves.call('POST', `/api/console/material-shipments/${s1}/receive`, {
+    expect((await klAdmin.call('POST', `/api/console/material-shipments/${s1}/receive`, { lines: [{ lineId: byName('BOX-1').id, receivedQuantity: 20 }] })).json.code).toBe('lines_mismatch');
+    expect((await klAdmin.call('POST', `/api/console/material-shipments/${s1}/receive`, { lines: [{ lineId: byName('BOX-1').id, receivedQuantity: -1 }, { lineId: byName('BAG-1').id, receivedQuantity: 1 }, { lineId: byName('ELA-1').id, receivedQuantity: 1 }] })).status).toBe(400);
+    const r = await klAdmin.call('POST', `/api/console/material-shipments/${s1}/receive`, {
       lines: [{ lineId: byName('BOX-1').id, receivedQuantity: 18 }, { lineId: byName('BAG-1').id, receivedQuantity: 50 }, { lineId: byName('ELA-1').id, receivedQuantity: 5 }],
       note: 'Two boxes were crushed.',
     });
@@ -1065,8 +1029,8 @@ describe('partner supplied materials', () => {
     expect(r.json.shipment).toMatchObject({ status: 'discrepancy', receiveNote: 'Two boxes were crushed.' });
     expect(r.json.shipment.lines.find((l: any) => l.sku === 'BOX-1')).toMatchObject({ quantity: 20, receivedQuantity: 18, difference: -2 });
     expect(r.json.shipment.receivedAt).toBeTruthy();
-    expect((await chaves.call('POST', `/api/console/material-shipments/${s1}/receive`, { lines: r.json.shipment.lines.map((l: any) => ({ lineId: l.id, receivedQuantity: l.quantity })) })).json.code).toBe('shipment_not_in_transit');
-    // exact receipt at the other site by an administrator
+    expect((await klAdmin.call('POST', `/api/console/material-shipments/${s1}/receive`, { lines: r.json.shipment.lines.map((l: any) => ({ lineId: l.id, receivedQuantity: l.quantity })) })).json.code).toBe('shipment_not_in_transit');
+    // exact receipt at the other site
     const ok = await klAdmin.call('POST', `/api/console/material-shipments/${s2}/receive`, { lines: other.json.shipment.lines.map((l: any) => ({ lineId: l.id, receivedQuantity: l.quantity })) });
     expect(ok.json.shipment.status).toBe('received');
 
@@ -1098,7 +1062,7 @@ describe('partner supplied materials', () => {
     });
     expect((await q(`SELECT count(*)::int AS n FROM material_movements WHERE case_id = $1`, [k.id]))[0].n).toBe(2);
     // delivering later books nothing more
-    const del = await intake.call('POST', `/api/cases/${k.id}/stage`, { stage: 'delivered' });
+    const del = await klAdmin.call('POST', `/api/cases/${k.id}/stage`, { stage: 'delivered' });
     expect(del.status).toBe(200);
     expect((await q(`SELECT count(*)::int AS n FROM material_movements WHERE case_id = $1`, [k.id]))[0].n).toBe(2);
     const b = await stockOf(af, box, 'PT-CHV');
@@ -1114,20 +1078,18 @@ describe('partner supplied materials', () => {
 
   it('adjusts stock with an audited reason and warns about low stock at most once a day', async () => {
     const adjust = (c: Client, body: Record<string, unknown>) => c.call('POST', '/api/console/materials/adjust', { orgId: acmeId, materialId: box, siteCode: 'PT-CHV', quantity: -1, reason: 'Damaged in storage', ...body });
-    expect((await kq.call('POST', '/api/console/materials/adjust', { orgId: acmeId, materialId: box, siteCode: 'PT-CHV', quantity: -1, reason: 'Damaged' })).status).toBe(403); // material.receive
     expect((await admin.call('POST', '/api/console/materials/adjust', { orgId: acmeId, materialId: box, siteCode: 'PT-CHV', quantity: -1, reason: 'Damaged' })).status).toBe(403);
-    expect((await adjust(chaves, { quantity: 0 })).status).toBe(400);
-    expect((await adjust(chaves, { quantity: 1.5 })).status).toBe(400);
-    expect((await adjust(chaves, { reason: 'x' })).json.code).toBe('reason_required');
-    expect((await adjust(chaves, { siteCode: 'EG-CFZ' })).status).toBe(404); // outside Chaves's site scope
-    expect((await adjust(chaves, { siteCode: 'NO-SUCH' })).status).toBe(400);
-    expect((await adjust(chaves, { materialId: ZERO })).status).toBe(404);
-    expect((await adjust(chaves, { orgId: contosoId })).status).toBe(404); // the material belongs to Acme
+    expect((await adjust(klAdmin, { quantity: 0 })).status).toBe(400);
+    expect((await adjust(klAdmin, { quantity: 1.5 })).status).toBe(400);
+    expect((await adjust(klAdmin, { reason: 'x' })).json.code).toBe('reason_required');
+    expect((await adjust(klAdmin, { siteCode: 'NO-SUCH' })).status).toBe(400);
+    expect((await adjust(klAdmin, { materialId: ZERO })).status).toBe(404);
+    expect((await adjust(klAdmin, { orgId: contosoId })).status).toBe(404); // the material belongs to Acme
     expect((await q(`SELECT count(*)::int AS n FROM material_movements WHERE kind = 'adjustment'`))[0].n).toBe(0);
 
     hooks.length = 0;
     // 17 - 10 = 7 is below the minimum of 10
-    const a = await adjust(chaves, { quantity: -10, reason: 'Water damage' });
+    const a = await adjust(klAdmin, { quantity: -10, reason: 'Water damage' });
     expect(a.status, JSON.stringify(a.json)).toBe(200);
     expect(a.json.material.stock.find((s: any) => s.siteCode === 'PT-CHV')).toMatchObject({ onHand: 7, lowStock: true });
     const notices = () => q(`SELECT * FROM notifications WHERE org_id = $1 AND kind = 'material_low_stock' ORDER BY created_at`, [acmeId]);
@@ -1144,11 +1106,11 @@ describe('partner supplied materials', () => {
     const k = await readyCase();
     await ship(k.id, 2);
     expect(await stockOf(af, box, 'PT-CHV')).toMatchObject({ onHand: 6 });
-    expect((await adjust(chaves, { quantity: -1 })).status).toBe(200);
+    expect((await adjust(klAdmin, { quantity: -1 })).status).toBe(200);
     expect(await notices()).toHaveLength(1);
     // after 24 hours the warning may come again
     await q(`UPDATE material_alerts SET notified_at = now() - interval '25 hours'`);
-    expect((await adjust(chaves, { quantity: -1 })).status).toBe(200);
+    expect((await adjust(klAdmin, { quantity: -1 })).status).toBe(200);
     expect(await notices()).toHaveLength(2);
     expect((await notices())[1].body).toBe('Case box at Chaves: 4 left');
     // an increase above the minimum does not warn
@@ -1205,19 +1167,19 @@ describe('partner supplied materials', () => {
 
 // ---------------------------------------------------------------------------------------------------------------------
 describe('permission matrix for the new routes', () => {
-  const who = () => ({ admin, up, aq, af, av, klAdmin, intake, chaves, kq, kf }) as Record<string, Client>;
-  const ALL = ['admin', 'up', 'aq', 'af', 'av', 'klAdmin', 'intake', 'chaves', 'kq', 'kf'];
+  const who = () => ({ admin, up, aq, af, av, klAdmin }) as Record<string, Client>;
+  const ALL = ['admin', 'up', 'aq', 'af', 'av', 'klAdmin'];
   const PARTNER = ['admin', 'up', 'aq', 'af', 'av'];
-  const KLINE = ['klAdmin', 'intake', 'chaves', 'kq', 'kf'];
+  const KLINE = ['klAdmin'];
 
   const rows: [string, string, unknown, string[]][] = [
     ['GET', '/api/claims', undefined, ALL],
     ['GET', `/api/claims/${ZERO}`, undefined, ALL],
     ['POST', '/api/claims', { caseId: ZERO, summary: 'Test', items: [{ arch: 'upper', step: 1, defectCode: 'CRACK' }] }, ['admin', 'aq']],
-    ['POST', `/api/claims/${ZERO}/messages`, { body: 'Hello' }, ['admin', 'aq', 'klAdmin', 'kq']],
-    ['POST', `/api/claims/${ZERO}/status`, { status: 'in_review' }, ['klAdmin', 'kq']],
-    ['POST', `/api/claims/${ZERO}/decision`, { decision: 'rejected', note: 'No' }, ['klAdmin', 'kq']],
-    ['POST', `/api/claims/${ZERO}/close`, {}, ['klAdmin', 'kq']],
+    ['POST', `/api/claims/${ZERO}/messages`, { body: 'Hello' }, ['admin', 'aq', 'klAdmin']],
+    ['POST', `/api/claims/${ZERO}/status`, { status: 'in_review' }, ['klAdmin']],
+    ['POST', `/api/claims/${ZERO}/decision`, { decision: 'rejected', note: 'No' }, ['klAdmin']],
+    ['POST', `/api/claims/${ZERO}/close`, {}, ['klAdmin']],
     ['GET', '/api/console/claims', undefined, KLINE],
     ['GET', `/api/console/claims/${ZERO}`, undefined, KLINE],
     ['GET', `/api/specs?orgId=${ZERO}`, undefined, ALL],
@@ -1225,14 +1187,14 @@ describe('permission matrix for the new routes', () => {
     ['GET', '/api/specs/default', undefined, ALL],
     ['GET', `/api/specs/${ZERO}`, undefined, ALL],
     ['GET', `/api/specs/${ZERO}/diff/${ZERO}`, undefined, ALL],
-    ['POST', '/api/specs', { orgId: ZERO }, ['admin', 'aq', 'klAdmin', 'kq']],
-    ['PUT', `/api/specs/${ZERO}`, { content: {} }, ['admin', 'aq', 'klAdmin', 'kq']],
-    ['DELETE', `/api/specs/${ZERO}`, undefined, ['admin', 'aq', 'klAdmin', 'kq']],
-    ['POST', `/api/specs/${ZERO}/propose`, {}, ['admin', 'aq', 'klAdmin', 'kq']],
-    ['POST', `/api/specs/${ZERO}/sign`, {}, ['admin', 'aq', 'klAdmin', 'kq']],
-    ['POST', `/api/specs/${ZERO}/reject`, { note: 'No' }, ['admin', 'aq', 'klAdmin', 'kq']],
+    ['POST', '/api/specs', { orgId: ZERO }, ['admin', 'aq', 'klAdmin']],
+    ['PUT', `/api/specs/${ZERO}`, { content: {} }, ['admin', 'aq', 'klAdmin']],
+    ['DELETE', `/api/specs/${ZERO}`, undefined, ['admin', 'aq', 'klAdmin']],
+    ['POST', `/api/specs/${ZERO}/propose`, {}, ['admin', 'aq', 'klAdmin']],
+    ['POST', `/api/specs/${ZERO}/sign`, {}, ['admin', 'aq', 'klAdmin']],
+    ['POST', `/api/specs/${ZERO}/reject`, { note: 'No' }, ['admin', 'aq', 'klAdmin']],
     ['GET', '/api/console/specs/partners', undefined, KLINE],
-    ['POST', '/api/console/specs', { orgId: ZERO }, ['klAdmin', 'kq']],
+    ['POST', '/api/console/specs', { orgId: ZERO }, ['klAdmin']],
     ['GET', '/api/materials', undefined, ALL],
     ['POST', '/api/materials', { sku: '' }, ['admin', 'klAdmin']],
     ['PATCH', `/api/materials/${ZERO}`, {}, ['admin']],
@@ -1243,8 +1205,8 @@ describe('permission matrix for the new routes', () => {
     ['GET', '/api/console/materials', undefined, KLINE],
     ['GET', '/api/console/material-shipments', undefined, KLINE],
     ['GET', `/api/console/material-shipments/${ZERO}`, undefined, KLINE],
-    ['POST', `/api/console/material-shipments/${ZERO}/receive`, { lines: [{ lineId: ZERO, receivedQuantity: 1 }] }, ['klAdmin', 'chaves']],
-    ['POST', '/api/console/materials/adjust', { orgId: ZERO, materialId: ZERO, siteCode: 'PT-CHV', quantity: 1, reason: 'Test' }, ['klAdmin', 'chaves']],
+    ['POST', `/api/console/material-shipments/${ZERO}/receive`, { lines: [{ lineId: ZERO, receivedQuantity: 1 }] }, ['klAdmin']],
+    ['POST', '/api/console/materials/adjust', { orgId: ZERO, materialId: ZERO, siteCode: 'PT-CHV', quantity: 1, reason: 'Test' }, ['klAdmin']],
     ['POST', '/api/uploads', { purpose: 'claim', claimId: ZERO, name: 'a.png', size: 10 }, ['admin', 'aq']],
     ['POST', '/api/uploads', { purpose: 'shipment', shipmentId: ZERO, name: 'a.pdf', size: 10 }, ['admin', 'up']],
     ['POST', `/api/cases/${ZERO}/replacement`, { items: [{ arch: 'upper', step: 1 }] }, ['admin', 'up']],
@@ -1272,9 +1234,9 @@ describe('permission matrix for the new routes', () => {
   it('needs a fresh authenticator code for propose, sign and reject', async () => {
     await freshStepUp();
     await expireStepUp('quality@acme.demo');
-    await expireStepUp('quality@kline.demo');
+    await expireStepUp('admin@kline.demo');
     for (const url of [`/api/specs/${ZERO}/propose`, `/api/specs/${ZERO}/sign`, `/api/specs/${ZERO}/reject`]) {
-      for (const c of [aq, kq]) {
+      for (const c of [aq, klAdmin]) {
         const r = await c.call('POST', url, { note: 'No' });
         expect(r.status, url).toBe(403);
         expect(r.json.code, url).toBe('step_up_required');

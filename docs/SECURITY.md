@@ -46,7 +46,7 @@ Not implemented: WebAuthn or other phishing resistant factors, and checking pass
 | CSRF | Every write (`POST`, `PUT`, `PATCH`, `DELETE`) with a session needs the header `x-csrf-token`, the HMAC-SHA256 of the session id. It is compared in constant time. Exempt: sign in, password forgot and reset, invitation accept, registration and confirmation (there is no session yet). API keys use no cookie and need no CSRF token. | `app.ts` (`CSRF_EXEMPT`), `crypto/tokens.ts` |
 | Step up | Sensitive actions need a TOTP code within the last `STEP_UP_MINUTES` (10), else `403 step_up_required`. | `requireStepUp`, `guard({ stepUp: true })` |
 
-Actions that need step up: unlocking a locked person (`POST /api/team/:id/unlock`, `POST /api/staff/:id/unlock`, audited as `team.unlocked` and `staff.unlocked`); replacing the factory stage map; creating or revoking API keys; creating, changing, rotating and deleting webhooks; saving the K Line portal connection; inviting team members, changing roles and resetting an authenticator (partners and K Line staff); creating or revoking service keys; adding or withdrawing agreements; adding and inviting partners and declining registrations; proposing, signing and rejecting specifications; regenerating recovery codes; exporting with patient names; saving a bag layout that prints personal data; erasing a case on request.
+Actions that need step up: unlocking a locked person (`POST /api/team/:id/unlock`, `POST /api/staff/:id/unlock`, audited as `team.unlocked` and `staff.unlocked`); replacing the factory stage map; creating or revoking API keys; creating, changing, rotating and deleting webhooks; saving the K Line portal connection (a K Line administrator saves it for a partner); inviting team members, changing roles and resetting an authenticator (partners and K Line staff); creating or revoking service keys; adding or withdrawing agreements; adding and inviting partners and declining registrations; proposing, signing and rejecting specifications; regenerating recovery codes; exporting with patient names; saving a bag layout that prints personal data; erasing a case on request.
 
 ## 4. Authorisation
 
@@ -107,6 +107,8 @@ Rotation procedure (outline; the operator runbook belongs in the deployment guid
 * Retention: `AUDIT_RETENTION_MONTHS` (36) is used by `cli audit-trim`. The worker does not run it, so someone must schedule it.
 
 ## 9. API keys, service keys and webhooks
+
+Creating partner API keys and webhooks needs `integration.manage`, which no partner role holds at the moment.
 
 | Control | Implementation | Code |
 |---|---|---|
@@ -256,7 +258,7 @@ Retest every fixed finding, and keep the report with the records of processing.
 * No session and no CSRF for this route (it is on the CSRF exempt list and cookies are not read). Body limit 256 KB, 120 requests a minute per IP and 600 per receiver.
 * The body holds patient names and is an untrusted hint only. It is read as raw bytes and only `type` and `uuid` are looked at. It is never logged, stored, echoed or put into jobs, case events, notifications, audit entries or error messages. The request log shows no headers and no body, and the receiver address is hidden in logged URLs.
 * A message can only trigger a status check of one of the same company's own open cases, found under that company's row level security context. Anything else answers 200 and does nothing, so existence of a case is not revealed. The status check reads the real status from the portal API with the company's own credentials, so a forged message cannot change a case.
-* Management (create, rotate, delete) needs `integration.manage`, an approved company and step up, and is audited without the secret.
+* Management (create, rotate, delete) needs `integration.manage` (no partner role holds it at the moment), an approved company and step up, and is audited without the secret.
 
 ## 19. Erasure on request, scrubbing and the transfer gate
 
