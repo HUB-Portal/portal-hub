@@ -409,6 +409,56 @@ describe('portal credentials', () => {
     expect((await up.call('POST', '/api/org/portal-api/test', {})).status).toBe(403);
   });
 
+  it('can be set and tested for a partner by a K Line administrator, and by nobody else at K Line', async () => {
+    const klAdmin = await new Client(app).full('admin@kline.demo');
+    const intake = await new Client(app).full('intake@kline.demo');
+    const url = `/api/partners/${acmeId}/portal-api`;
+    const body = { baseUrl: 'https://portal.example.org/', apiKey: 'staff-set-api-key-value-1234567890', userUuid: '123e4567-e89b-12d3-a456-426614174001' };
+
+    // only kl_admin (admin.partners); partners are refused too
+    for (const c of [intake, admin, up]) {
+      expect((await c.call('GET', '/api/partners/portal-connections')).status).toBe(403);
+      expect((await c.call('GET', url)).status).toBe(403);
+      expect((await c.call('PUT', url, body)).status).toBe(403);
+      expect((await c.call('POST', `${url}/test`, {})).status).toBe(403);
+    }
+
+    const list = await klAdmin.call('GET', '/api/partners/portal-connections');
+    expect(list.status).toBe(200);
+    const acme = list.json.items.find((x: any) => x.id === acmeId);
+    expect(acme).toMatchObject({ code: 'ACME', configured: true, baseUrl: 'https://portal.example.com' }); // saved by the partner in the test before
+    expect(list.json.items.find((x: any) => x.code === 'CONTOSO')).toMatchObject({ configured: false, baseUrl: null });
+    expect(JSON.stringify(list.json)).not.toMatch(/apiKey|f1\./);
+    expect((await klAdmin.call('GET', `/api/partners/${crypto.randomUUID()}/portal-api`)).status).toBe(404);
+
+    await q(`UPDATE sessions SET step_up_at = now() - interval '2 hours' WHERE revoked_at IS NULL`);
+    expect((await klAdmin.call('PUT', url, body)).json.code).toBe('step_up_required');
+    await klAdmin.stepUp('admin@kline.demo');
+    expect((await klAdmin.call('PUT', url, { ...body, baseUrl: 'http://portal.example.org' })).json.code).toBe('invalid_portal_url');
+    expect((await klAdmin.call('PUT', url, { ...body, apiKey: undefined })).json.code).toBe('api_key_required');
+
+    const put = await klAdmin.call('PUT', url, body);
+    expect(put.status, JSON.stringify(put.json)).toBe(200);
+    expect(put.json).toMatchObject({ configured: true, baseUrl: 'https://portal.example.org', userUuid: body.userUuid });
+    expect(JSON.stringify(put.json)).not.toContain(body.apiKey);
+    const stored = (await q('SELECT settings FROM organizations WHERE id = $1', [acmeId]))[0].settings;
+    expect(stored.portal_api.apiKeyEnc).toMatch(/^f1\./);
+    expect(JSON.stringify(stored)).not.toContain(body.apiKey);
+    // the partner sees what K Line saved, and the change is in the partner's log marked as made by staff
+    expect((await admin.call('GET', '/api/org/portal-api')).json).toMatchObject({ configured: true, baseUrl: 'https://portal.example.org' });
+    const audit = await q(`SELECT details FROM audit_log WHERE action = 'org.portal_api_updated' AND org_id = $1 ORDER BY seq DESC LIMIT 1`, [acmeId]);
+    expect(audit[0].details).toMatchObject({ keyReplaced: true, byStaff: true });
+    expect(JSON.stringify(audit)).not.toContain(body.apiKey);
+    expect((await klAdmin.call('GET', url)).json).toMatchObject({ code: 'ACME', configured: true });
+
+    fake.reset();
+    expect((await klAdmin.call('POST', `${url}/test`, {})).json).toEqual({ ok: true });
+    fake.failNext('ping', 'auth', 1, 401);
+    expect((await klAdmin.call('POST', `${url}/test`, {})).json).toMatchObject({ ok: false, code: 'auth' });
+    // saving without defaultGender keeps the one the partner chose (the next test relies on it)
+    expect(put.json.defaultGender).toBe(1);
+  });
+
   it('uses the configured gender when creating portal cases', async () => {
     fake.reset();
     const { id } = await directCase('80005', 'Gina', 'Green');

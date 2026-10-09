@@ -44,6 +44,8 @@ const ConsoleCases = lazy(() => import('./pages/console/Cases'));
 const CaseView = lazy(() => import('./pages/console/CaseView'));
 const Partners = lazy(() => import('./pages/console/Partners'));
 const PartnerDetail = lazy(() => import('./pages/console/PartnerDetail'));
+const PortalConnections = lazy(() => import('./pages/console/PortalConnections'));
+const PortalConnectionPartner = lazy(() => import('./pages/console/PortalConnections').then((m) => ({ default: m.PortalConnectionPartner })));
 const Mes = lazy(() => import('./pages/console/Mes'));
 const ServiceKeys = lazy(() => import('./pages/console/ServiceKeys'));
 const Staff = lazy(() => import('./pages/console/Staff'));
@@ -153,6 +155,8 @@ render(
             <Route path="/materials" component={kline(ConsoleMaterials, { perm: 'material.read' })} />
             <Route path="/partners" component={kline(Partners, { perm: 'admin.partners' })} />
             <Route path="/partners/:id" component={kline(PartnerDetail, { perm: 'admin.partners' })} />
+            <Route path="/portal" component={kline(PortalConnections, { perm: 'admin.partners' })} />
+            <Route path="/portal/:id" component={kline(PortalConnectionPartner, { perm: 'admin.partners' })} />
             <Route path="/mes" component={kline(Mes, { perm: 'admin.mes' })} />
             <Route path="/service-keys" component={kline(ServiceKeys, { perm: 'admin.mes' })} />
             <Route path="/staff" component={kline(Staff, { perm: 'admin.staff' })} />

@@ -53,6 +53,7 @@ export function Shell(props: { children?: JSX.Element }) {
     { to: '/console/specs', label: 'Partner specs', icon: FileCheck2, show: can('spec.read') },
     { to: '/console/materials', label: 'Partner materials', icon: Boxes, show: can('material.read') },
     { to: '/console/partners', label: 'Partners', icon: Building2, show: can('admin.partners') },
+    { to: '/console/portal', label: 'Portal connection', icon: PlugZap, show: can('admin.partners') },
     { to: '/console/mes', label: 'MES integration', icon: Workflow, show: can('admin.mes') },
     { to: '/console/service-keys', label: 'Service keys', icon: KeyRound, show: can('admin.mes') },
     { to: '/console/staff', label: 'Staff', icon: UserCog, show: can('admin.staff') },
