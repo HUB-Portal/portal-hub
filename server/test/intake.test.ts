@@ -228,6 +228,7 @@ describe('upload, checks and submit', () => {
     expect(f.fileId).toBe(init.json.fileId);
     expect(f.file.state).toBe('ready');
     expect(f.file.size).toBe(big.length);
+    await up.call('DELETE', `/api/files/${f.fileId}`); // the case keeps only the files the later tests expect
   });
 
   it('uploads a multi chunk file and resumes where it stopped', async () => {
