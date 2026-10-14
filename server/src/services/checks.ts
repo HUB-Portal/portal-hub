@@ -64,8 +64,9 @@ export function computeChecks(all: CheckFile[], opts: { requirePts: boolean }): 
   }
   const uploading = live.filter((f) => f.state === 'uploading').length;
   const processing = live.filter((f) => f.state === 'processing').length;
-  if (uploading) errors.push({ code: 'files_incomplete', message: `${uploading} file${uploading === 1 ? ' has' : 's have'} not finished uploading.` });
-  if (processing) errors.push({ code: 'files_processing', message: `${processing} file${processing === 1 ? ' is' : 's are'} still being checked.` });
+  // Files that are still on their way do not block submitting. They are shown as warnings the partner confirms.
+  if (uploading) warnings.push({ code: 'files_incomplete', message: `${uploading} file${uploading === 1 ? ' has' : 's have'} not finished uploading.` });
+  if (processing) warnings.push({ code: 'files_processing', message: `${processing} file${processing === 1 ? ' is' : 's are'} still being checked.` });
 
   const stls = live.filter((f) => f.kind === 'stl');
   const ptsFiles = live.filter((f) => f.kind === 'pts');
