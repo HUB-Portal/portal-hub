@@ -4,6 +4,7 @@ import { closePools, ownerPool, SYSTEM, tx } from './db';
 import { audit } from './audit';
 import { seedDemo } from './demo/seed';
 import { createUserToken } from './services/userTokens';
+import { DEMO_PASSWORD, demoCurrentCode, isDemoEmail } from './services/demo';
 import { runRetention } from './services/retention';
 import { runPortalSync } from './services/portalSync';
 import { REWRAP_KINDS, rewrapAll, type RewrapKind } from './services/rewrap';
@@ -56,6 +57,19 @@ async function main(): Promise<number> {
       } else {
         console.log('Administrator created. They sign in with "Sign in with Google" on the sign in page, then set up their authenticator app.');
         if (!config.oidc.googleEnabled) console.log('Note: Google sign in is not switched on yet (OIDC_GOOGLE_CLIENT_ID and OIDC_GOOGLE_CLIENT_SECRET).');
+      }
+      return 0;
+    }
+    case 'demo-accounts': {
+      // The sign in page lists these only for direct local use. Behind a forwarded URL (a Codespace) it is hidden, so print them here.
+      if (!config.demoMode) throw new Error('DEMO_MODE is off, so there are no demo accounts to show.');
+      const rows = await tx(SYSTEM, (c) => c.query(`SELECT email, roles FROM users WHERE email ILIKE '%.demo' AND status <> 'disabled' ORDER BY email`));
+      console.log(`Demo password for every account: ${DEMO_PASSWORD}`);
+      console.log('The authenticator code changes every 30 seconds; run this command again for a fresh one.\n');
+      for (const r of rows.rows) {
+        if (!isDemoEmail(r.email)) continue;
+        const c = demoCurrentCode(r.email);
+        console.log(`${String(r.email).padEnd(24)} ${String((r.roles as string[]).join(',')).padEnd(16)} code ${c?.code ?? '------'} (${c?.secondsLeft ?? 0}s left)`);
       }
       return 0;
     }

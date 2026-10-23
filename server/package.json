@@ -10,6 +10,7 @@
     "init-dev": "node scripts/init-dev.mjs",
     "migrate": "tsx src/cli.ts migrate",
     "seed": "tsx src/cli.ts seed --force",
+    "demo-accounts": "tsx src/cli.ts demo-accounts",
     "typecheck": "tsc --noEmit",
     "test": "vitest run"
   },

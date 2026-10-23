@@ -1,0 +1,16 @@
+{
+  "name": "Portal Hub (temporary demo)",
+  "image": "mcr.microsoft.com/devcontainers/typescript-node:1-22-bookworm",
+  "features": {
+    // The development database runs in Docker (deploy/docker-compose.dev.yml), so the Codespace needs Docker inside it.
+    "ghcr.io/devcontainers/features/docker-in-docker:2": {}
+  },
+  "hostRequirements": { "cpus": 2 },
+  "postCreateCommand": "bash .devcontainer/setup.sh",
+  "postStartCommand": "bash .devcontainer/start.sh",
+  // The port stays private: only you (signed in to GitHub) can open it. Do not change it to Public.
+  "forwardPorts": [4000],
+  "portsAttributes": {
+    "4000": { "label": "Portal Hub", "onAutoForward": "openBrowser", "visibility": "private" }
+  }
+}
